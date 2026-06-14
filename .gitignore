@@ -1,0 +1,70 @@
+# Generic .gitignore for multi-language projects
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+env/
+.env
+.env.*
+
+# Java
+*.class
+
+# Go
+/bin/
+/pkg/
+
+# Build
+dist/
+build/
+coverage/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# AWS
+.aws/credentials
+
+# Secrets
+*.pem
+*.key
+secrets.json
+
+# Logs
+*.log
+
+# Misc
+*.sqlite3
+*.db
+
+# IDE
+*.iml
+
+# macOS
+*.DS_Store
+
+# Windows
+Thumbs.db
+
