@@ -11,6 +11,9 @@ from contextlib import asynccontextmanager
 import os
 
 from api.database import init_db
+# ensure DebateRecord model is registered before init_db runs
+from api.services import debate_engine  # type: ignore
+
 from api.routes.targets      import router as targets_router
 from api.routes.scans        import router as scans_router
 from api.routes.findings     import findings_router, approvals_router
@@ -27,6 +30,7 @@ from api.routes.connector_health import router as connector_health_router
 from api.routes.hunter       import router as hunter_router
 from api.routes.quality      import router as quality_router
 from api.routes.runners      import router as runners_router, ws_router as runners_ws_router
+from api.routes.debate       import router as debate_router
 
 
 @asynccontextmanager
@@ -70,6 +74,7 @@ app.include_router(connector_health_router, prefix="/api/v1")
 app.include_router(hunter_router, prefix="/api/v1")
 app.include_router(quality_router, prefix="/api/v1")
 app.include_router(runners_router, prefix="/api/v1")
+app.include_router(debate_router, prefix="/api/v1")
 app.include_router(ws_router)
 app.include_router(live_ws_router)
 app.include_router(runners_ws_router)
@@ -81,7 +86,17 @@ def health():
     from api.runners.manager import runner_manager
     refresh_remote_tools()
     from api.ai import provider_status
-    return {"status": "ok", "version": "5.2.0-gemini-runner", "tools_available": len(ALL_TOOLS), "agent": "architect_moe", "ai": provider_status(), "program_radar": "enabled", "live_data": "enabled", "account_hub": "enabled", "connector_resilience": "enabled", "full_hunter_workflow": "enabled", "agent_quality_loop": "enabled", "remote_runners": {"enabled": True, "online": len(runner_manager.connections)}}
+    from api.services.debate_engine import debate_enabled, debate_model
+    return {
+        "status": "ok",
+        "version": "5.2.0-gemini-runner",
+        "tools_available": len(ALL_TOOLS),
+        "agent": "architect_moe",
+        "ai": provider_status(),
+        "program_radar": "enabled",
+        "live_data": "enabled",
+        "debate_engine": {"enabled": debate_enabled(), "model": debate_model()},
+    }
 
 
 @app.get("/api/v1/tools")
