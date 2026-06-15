@@ -1,60 +1,71 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
-from typing import List, Optional
+import asyncio
+from typing import Optional, List
+
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query
 from sqlmodel import Session, select
 
-from api.database import get_session
-from api.services.debate_engine import DebateRecord, DebateSession, debate_enabled
-from api.models import Finding, Scan
+from api.database import get_session, session_ctx
+from api.models import Finding, ScanEvent
+from api.services.debate_engine import (
+    debate_finding, debate_all_findings, DebateRecord, debate_enabled as _debate_enabled, debate_model as _debate_model
+)
 
-router = APIRouter(prefix="/debate", tags=["debate"])
+router = APIRouter(prefix="/debate", tags=["debate-engine"])
 
 
 @router.get("/records/{finding_id}")
 def get_records(finding_id: str, session: Session = Depends(get_session)):
-    rows = session.exec(select(DebateRecord).where(DebateRecord.finding_id == finding_id)).all()
-    return [r.dict() for r in rows]
+    records = session.exec(select(DebateRecord).where(DebateRecord.finding_id == finding_id)).all()
+    return [r.dict() for r in records]
 
 
 @router.post("/findings/{finding_id}/run")
-async def run_debate_finding(
+async def run_debate_for_finding(
     finding_id: str,
-    force: bool = Query(False, description="Force debate even if BOUNTYOS_DEBATE_ENABLED is false"),
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+    force: bool = Query(False, description="Force debate even if engine disabled or already debated"),
 ):
-    if not debate_enabled() and not force:
-        raise HTTPException(400, "Debate engine is disabled (set BOUNTYOS_DEBATE_ENABLED=true or use force=true)")
+    if not _debate_enabled() and not force:
+        raise HTTPException(403, "Debate engine is disabled (set BOUNTYOS_DEBATE_ENABLED=true to enable) ")
 
-    # Check finding exists
-    from api.database import session_ctx
-    with session_ctx() as s:
-        f = s.get(Finding, finding_id)
-        if not f:
-            raise HTTPException(404, "Finding not found")
-        scan_id = f.scan_id
+    f = session.get(Finding, finding_id)
+    if not f:
+        raise HTTPException(404, "Finding not found")
 
-    ds = DebateSession()
-    # Run in background
-    import asyncio
+    # enqueue background job
+    def _bg_run(fid: str, sid: str, fr: bool):
+        try:
+            asyncio.run(debate_finding(fid, sid, force=fr))
+        except Exception as e:
+            with session_ctx() as s:
+                s.add(ScanEvent(scan_id=sid, phase="vulnscan", tool="debate-engine", level="error", message=f"Debate background error: {e}"))
+                s.commit()
 
-    asyncio.create_task(ds.debate_finding(finding_id, scan_id=scan_id))
-    return {"detail": "debate started", "finding_id": finding_id}
+    background_tasks.add_task(_bg_run, finding_id, f.scan_id, force)
+    return {"detail": "Debate started", "finding_id": finding_id, "model": _debate_model()}
 
 
 @router.post("/scans/{scan_id}/run")
-async def run_debate_scan(scan_id: str, force: bool = Query(False, description="Force debate even if disabled")):
-    if not debate_enabled() and not force:
-        raise HTTPException(400, "Debate engine is disabled (set BOUNTYOS_DEBATE_ENABLED=true or use force=true)")
+async def run_debate_for_scan(
+    scan_id: str,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+    force: bool = Query(False, description="Force debate even if engine disabled"),
+):
+    if not _debate_enabled() and not force:
+        raise HTTPException(403, "Debate engine is disabled (set BOUNTYOS_DEBATE_ENABLED=true to enable) ")
 
-    # Check scan exists
-    from api.database import session_ctx
-    with session_ctx() as s:
-        sc = s.get(Scan, scan_id)
-        if not sc:
-            raise HTTPException(404, "Scan not found")
+    # Kick off background task to debate all findings
+    def _bg_run(sid: str, fr: bool):
+        try:
+            asyncio.run(debate_all_findings(sid, force=fr))
+        except Exception as e:
+            with session_ctx() as s:
+                s.add(ScanEvent(scan_id=sid, phase="vulnscan", tool="debate-engine", level="error", message=f"Debate scan background error: {e}"))
+                s.commit()
 
-    ds = DebateSession()
-    import asyncio
-
-    asyncio.create_task(ds.debate_all_findings(scan_id))
-    return {"detail": "debate started for scan", "scan_id": scan_id}
+    background_tasks.add_task(_bg_run, scan_id, force)
+    return {"detail": "Debate for scan scheduled", "scan_id": scan_id, "model": _debate_model()}
