@@ -1,7 +1,7 @@
 # BountyOS — Autonomous Bug Bounty Platform
 
 Full-stack, AI-powered bug bounty automation framework.
-FastAPI backend + React dashboard + dual Claude-powered agents.
+FastAPI backend + React dashboard + Gemini/Vertex-powered agents.
 
 ---
 
@@ -77,10 +77,23 @@ go install github.com/ffuf/ffuf/v2@latest
 apt install sqlmap -y
 ```
 
-### 3. Set API key
+### 3. Configure Gemini or Vertex AI
+
+For Gemini Developer API:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export BOUNTYOS_MAIN_PROVIDER=gemini
+export BOUNTYOS_MAIN_MODEL=gemini-2.5-flash
+export GEMINI_API_KEY=...
+```
+
+For Vertex AI:
+
+```bash
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT=your-gcp-project
+export GOOGLE_CLOUD_LOCATION=global
+export BOUNTYOS_MAIN_MODEL=gemini-2.5-flash
 ```
 
 ### 4. Run
@@ -176,7 +189,12 @@ VULNSCAN_TOOLS["mytool"] = MyTool()
 
 | Variable           | Default             | Description |
 |--------------------|---------------------|-------------|
-| ANTHROPIC_API_KEY  | required            | Used by Coordinator + Exploit Agent + AI Chat |
+| BOUNTYOS_MAIN_PROVIDER | gemini | Main provider routing hint for Gemini/Vertex-compatible flows |
+| BOUNTYOS_MAIN_MODEL | gemini-2.5-flash | Main Gemini model used by Coordinator + Exploit Agent + AI Chat |
+| GEMINI_API_KEY | optional | Gemini Developer API key for local/non-Vertex runs |
+| GOOGLE_GENAI_USE_VERTEXAI | false | Set `true` when using Vertex AI credentials |
+| GOOGLE_CLOUD_PROJECT | optional | GCP project for Vertex AI |
+| GOOGLE_CLOUD_LOCATION | global | Vertex AI location |
 | DATABASE_URL       | sqlite:///./bountyos.db | Swap to `postgresql://...` for production |
 
 ---
@@ -221,9 +239,9 @@ Environment variables:
 ```bash
 export BOUNTYOS_LOCAL_MODEL="heuristic-local"
 export BOUNTYOS_LIGHT_MODEL="heuristic-light"
-export BOUNTYOS_MAIN_PROVIDER="anthropic"
-export BOUNTYOS_MAIN_MODEL="claude-opus-4-5"
-export BOUNTYOS_EXPLOIT_MODEL="claude-opus-4-5"
+export BOUNTYOS_MAIN_PROVIDER="gemini"
+export BOUNTYOS_MAIN_MODEL="gemini-2.5-flash"
+export BOUNTYOS_EXPLOIT_MODEL="gemini-2.5-pro"
 ```
 
 Routing:
@@ -581,6 +599,30 @@ curl -X POST http://localhost:8000/api/v1/quality/evaluations/EVALUATION_ID/retr
 ```
 
 Chat commands include `evaluate agent work`, `show quality scores`, `show model performance`, and `retry weak work`.
+
+
+## Collaborative Debate Engine
+
+The Collaborative Debate Engine reviews high and critical findings before reporting. It runs a Skeptic → Proponent → Verdict flow: the Skeptic challenges evidence quality, reproducibility, false-positive risk, severity, scope ambiguity, and missing second confirmation; the Proponent defends or concedes using existing evidence only; and the Verdict step returns `CONFIRMED`, `DOWNGRADED`, `REJECTED`, or `NEEDS_EVIDENCE`. Debate records are persisted for auditability.
+
+The engine is Gemini/Vertex provider compatible through the existing BountyOS AI routing layer. It is production-safe and review-only: it does not execute tools, exploits, scans, shell commands, HTTP requests, payloads, or destructive actions. It is disabled by default.
+
+Environment variables:
+
+```bash
+export BOUNTYOS_DEBATE_ENABLED=true
+export BOUNTYOS_DEBATE_MODEL=gemini-2.5-flash
+# Optional tuning
+export BOUNTYOS_DEBATE_TIMEOUT_SECONDS=60
+export BOUNTYOS_DEBATE_MAX_TOKENS=1500
+```
+
+API examples:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/debate/findings/FINDING_ID/run
+curl -X POST http://localhost:8000/api/v1/debate/scans/SCAN_ID/run
+```
 
 ## v5.2 Gemini Hybrid Runner
 

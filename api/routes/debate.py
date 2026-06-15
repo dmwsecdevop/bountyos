@@ -1,20 +1,23 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
-from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
-from api.database import get_session
-from api.services.debate_engine import DebateRecord, DebateSession, debate_enabled
+from api.database import get_session, session_ctx
 from api.models import Finding, Scan
+from api.services.debate_engine import DebateRecord, DebateSession, debate_enabled, debate_model
 
 router = APIRouter(prefix="/debate", tags=["debate"])
 
 
 @router.get("/records/{finding_id}")
 def get_records(finding_id: str, session: Session = Depends(get_session)):
-    rows = session.exec(select(DebateRecord).where(DebateRecord.finding_id == finding_id)).all()
-    return [r.dict() for r in rows]
+    records = session.exec(
+        select(DebateRecord)
+        .where(DebateRecord.finding_id == finding_id)
+        .order_by(DebateRecord.created_at.desc())
+    ).all()
+    return [record.model_dump() for record in records]
 
 
 @router.post("/findings/{finding_id}/run")
@@ -23,38 +26,38 @@ async def run_debate_finding(
     force: bool = Query(False, description="Force debate even if BOUNTYOS_DEBATE_ENABLED is false"),
 ):
     if not debate_enabled() and not force:
-        raise HTTPException(400, "Debate engine is disabled (set BOUNTYOS_DEBATE_ENABLED=true or use force=true)")
+        return {
+            "enabled": False,
+            "detail": "Debate engine is disabled. Set BOUNTYOS_DEBATE_ENABLED=true or pass force=true.",
+            "model": debate_model(),
+        }
 
-    # Check finding exists
-    from api.database import session_ctx
-    with session_ctx() as s:
-        f = s.get(Finding, finding_id)
-        if not f:
-            raise HTTPException(404, "Finding not found")
-        scan_id = f.scan_id
+    with session_ctx() as session:
+        finding = session.get(Finding, finding_id)
+        if not finding:
+            raise HTTPException(status_code=404, detail="Finding not found")
+        scan_id = finding.scan_id
 
-    ds = DebateSession()
-    # Run in background
-    import asyncio
-
-    asyncio.create_task(ds.debate_finding(finding_id, scan_id=scan_id))
-    return {"detail": "debate started", "finding_id": finding_id}
+    record_id = await DebateSession(force=force).debate_finding(finding_id, scan_id=scan_id)
+    return {"enabled": True, "finding_id": finding_id, "record_id": record_id, "model": debate_model()}
 
 
 @router.post("/scans/{scan_id}/run")
-async def run_debate_scan(scan_id: str, force: bool = Query(False, description="Force debate even if disabled")):
+async def run_debate_scan(
+    scan_id: str,
+    force: bool = Query(False, description="Force debate even if BOUNTYOS_DEBATE_ENABLED is false"),
+):
     if not debate_enabled() and not force:
-        raise HTTPException(400, "Debate engine is disabled (set BOUNTYOS_DEBATE_ENABLED=true or use force=true)")
+        return {
+            "enabled": False,
+            "detail": "Debate engine is disabled. Set BOUNTYOS_DEBATE_ENABLED=true or pass force=true.",
+            "model": debate_model(),
+        }
 
-    # Check scan exists
-    from api.database import session_ctx
-    with session_ctx() as s:
-        sc = s.get(Scan, scan_id)
-        if not sc:
-            raise HTTPException(404, "Scan not found")
+    with session_ctx() as session:
+        scan = session.get(Scan, scan_id)
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
 
-    ds = DebateSession()
-    import asyncio
-
-    asyncio.create_task(ds.debate_all_findings(scan_id))
-    return {"detail": "debate started for scan", "scan_id": scan_id}
+    record_ids = await DebateSession(force=force).debate_all_findings(scan_id)
+    return {"enabled": True, "scan_id": scan_id, "record_ids": record_ids, "count": len(record_ids), "model": debate_model()}
