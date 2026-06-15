@@ -635,3 +635,40 @@ BountyOS can now execute tools in three locations:
 Open **RUNNERS** in the dashboard to create a runner token, choose the execution mode, inspect the real remote inventory, and review tool-job evidence. The Linux runner authenticates inside the encrypted WebSocket rather than placing its token in the URL.
 
 See `RUNNER_BRIDGE_GUIDE.md` for deployment and Parrot/worker setup.
+
+## Agentic Command Center Upgrade
+
+This upgrade adds the BountyOS Agentic Command Center while intentionally excluding Sandbox Runner. BountyOS remains Gemini/Vertex-first and does not add Anthropic/Claude dependencies.
+
+New safe-by-default modules:
+
+- **Gemini/Vertex AI Router Cleanup** — provider-neutral model selection for `fast_chat`, `recon_summary`, `bug_reasoning`, `debate_review`, and `report_writing`.
+- **Skill Registry** — descriptive metadata for recon, validation, cloud, mobile, and reporting skills. It never executes tools; high-risk skills such as `sqlmap`, aggressive `nmap`, active/high-risk `nuclei`, `dalfox`, `adb`, and `frida` require approval.
+- **Agent Task Manager** — async task, event, and artifact state for the command center UI. It is orchestration/state only and does not start scans by itself.
+- **Knowledge Graph** — stores sanitized historical techniques, attempts, chains, and agent context. Historical knowledge is untrusted context.
+- **Takeover Monitor** — disabled by default, scope-guarded subdomain takeover candidate tracking.
+- **Collaborative Debate Engine** — review-only high/critical finding review with Skeptic → Proponent → Verdict records.
+- **Browser Agent metadata** — DevTools MCP capability/session metadata only; no browser navigation or automation by default.
+- **Mobile APK Hunter** — static-analysis metadata shell for manifests, permissions, exported components, and mobile checklists. It does not run ADB/Frida by default.
+- **Report Builder** — bounty report drafts from existing finding fields with deterministic fallback that marks missing evidence instead of inventing it.
+- **Agent Revisions/Evals** — revision records and basic safety evals for approval defaults, disabled defaults, redaction, and report fallback behavior.
+- **Cloud Run hardening** — `.dockerignore`, `.env.example`, private Cloud Run guidance, and Cloud SQL Postgres documentation.
+
+Sandbox Runner is intentionally not included: no isolated code execution sandbox, no Cloud Run sandbox worker, and no destructive automation were added.
+
+### Safe mode and authorization
+
+- `BOUNTYOS_EXECUTION_MODE=passive` is the recommended default, especially on Cloud Run.
+- Active modules are disabled by default: `BOUNTYOS_DEBATE_ENABLED=false`, `BOUNTYOS_TAKEOVER_ENABLED=false`, and `BOUNTYOS_BROWSER_AGENT_ENABLED=false`.
+- Approval is required for high-risk skills.
+- Use BountyOS only for authorized testing and in-scope targets.
+
+### Database backend
+
+BountyOS supports SQLite for local/dev testing and Cloud SQL Postgres for production. `DATABASE_URL` controls the backend. If `DATABASE_URL` starts with `postgresql://`, BountyOS normalizes it to `postgresql+psycopg://`; Cloud SQL Unix socket URLs are supported.
+
+See [`docs/CLOUD_SQL_POSTGRES.md`](docs/CLOUD_SQL_POSTGRES.md) for the Cloud SQL guide. For personal Google Cloud deployment, Cloud SQL is recommended once you want persistent targets, scans, findings, agent tasks, and knowledge graph records.
+
+### Cloud Run deployment
+
+See [`docs/CLOUD_RUN_DEPLOY.md`](docs/CLOUD_RUN_DEPLOY.md) for a private Cloud Run deployment guide. Heavy scanners should run on a remote runner instead of the main Cloud Run web image.
