@@ -1,0 +1,413 @@
+"""
+BountyOS Architect Agent.
+
+Implements ORTA:
+Observe -> Reason -> Think -> Act
+
+Narrow upgrade: command routing into existing BountyOS actions. This does not add
+new scope hardening or replace the existing scanner safety layer.
+"""
+
+from __future__ import annotations
+
+import os
+import json
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from sqlmodel import Session, select
+
+from api.models import Target, Scan, ScanMode, ScanStatus, ScanPhase, Finding, Approval, ApprovalStatus, BountyProgram, BountyAccount
+from api.realtime import publish_sync, set_agent_state
+from api.agents.model_router import router as model_router
+from api.agents.live_data_agent import live_data_agent
+
+
+@dataclass
+class ArchitectDecision:
+    action: str
+    needs_approval: bool = False
+    confidence: float = 0.75
+    target_id: Optional[str] = None
+    scan_id: Optional[str] = None
+    notes: str = ""
+
+    def as_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class ArchitectAgent:
+    def observe(self, session: Session, transcript: str, selected_target_id: Optional[str], selected_scan_id: Optional[str]) -> Dict[str, Any]:
+        target = session.get(Target, selected_target_id) if selected_target_id else None
+        scan = session.get(Scan, selected_scan_id) if selected_scan_id else None
+
+        if not target and scan:
+            target = session.get(Target, scan.target_id)
+        if not target:
+            target = session.exec(select(Target).order_by(Target.created_at.desc())).first()
+        if not scan:
+            scan = session.exec(select(Scan).order_by(Scan.created_at.desc())).first()
+
+        finding_count = 0
+        pending_approvals = 0
+        if scan:
+            finding_count = len(session.exec(select(Finding).where(Finding.scan_id == scan.id)).all())
+            pending_approvals = len(session.exec(
+                select(Approval).where(Approval.scan_id == scan.id).where(Approval.status == ApprovalStatus.PENDING)
+            ).all())
+
+        obs = {
+            "transcript": transcript,
+            "target": {"id": target.id, "domain": target.domain, "name": target.name} if target else None,
+            "scan": {"id": scan.id, "status": str(scan.status), "phase": str(scan.phase), "mode": str(scan.mode)} if scan else None,
+            "finding_count": finding_count,
+            "pending_approvals": pending_approvals,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        publish_sync("agent.observe", obs)
+        return obs
+
+    def reason(self, transcript: str, obs: Dict[str, Any]) -> ArchitectDecision:
+        t = transcript.lower().strip()
+        target_id = obs.get("target", {}).get("id") if obs.get("target") else None
+        scan_id = obs.get("scan", {}).get("id") if obs.get("scan") else None
+
+        if any(k in t for k in ["self evaluate", "evaluate agents", "evaluate agent work", "run quality loop", "quality check", "critic review", "verify work"]):
+            return ArchitectDecision("evaluate_agent_work", False, 0.92, target_id, scan_id, "Agent Quality Loop requested.")
+        if any(k in t for k in ["show quality", "quality scores", "agent performance", "model performance", "evaluation results"]):
+            return ArchitectDecision("show_agent_quality", False, 0.88, target_id, scan_id, "Agent quality results requested.")
+        if any(k in t for k in ["retry weak work", "retry failed work", "fix weak result", "retry low score"]):
+            return ArchitectDecision("retry_weak_work", False, 0.86, target_id, scan_id, "Controlled retry requested for weakest agent output.")
+        if any(k in t for k in ["full hunter", "run hunter workflow", "build attack graph", "generate hypotheses", "adaptive plan", "full hacker mindset", "hunt this scan"]):
+            return ArchitectDecision("run_hunter_workflow", False, 0.93, target_id, scan_id, "Full Hunter lifecycle requested.")
+        if any(k in t for k in ["generate report", "create report", "bounty report", "report agent"]):
+            return ArchitectDecision("generate_hunter_report", False, 0.9, target_id, scan_id, "Bounty-ready report requested.")
+        if any(k in t for k in ["show hypotheses", "bug hypotheses", "next attack ideas", "hunter hypotheses"]):
+            return ArchitectDecision("show_hypotheses", False, 0.88, target_id, scan_id, "Hunter hypotheses requested.")
+        if any(k in t for k in ["show attack graph", "attack surface graph", "knowledge graph"]):
+            return ArchitectDecision("show_attack_graph", False, 0.88, target_id, scan_id, "Attack graph requested.")
+        if live_data_agent.detect(t):
+            return ArchitectDecision("live_data_lookup", False, 0.91, target_id, scan_id, "Current/live-data question detected.")
+        if any(k in t for k in ["sync bounty accounts", "sync accounts", "check my programs", "check my bugcrowd", "check my hackerone", "check my intigriti", "check my yeswehack", "private invites", "private programs", "my bounty accounts"]):
+            return ArchitectDecision("sync_bounty_accounts", False, 0.88, target_id, scan_id, "Connected Bounty Account Hub sync requested.")
+        if any(k in t for k in ["show bounty accounts", "list bounty accounts", "connected accounts", "show accounts"]):
+            return ArchitectDecision("show_bounty_accounts", False, 0.84, target_id, scan_id, "User asked to view connected bounty accounts.")
+        if any(k in t for k in ["easy program", "easy scope", "easy bounty", "less effort", "more money", "make money", "profitable program", "opportunity score", "best program", "select easy", "easiest program"]):
+            return ArchitectDecision("recommend_programs", False, 0.88, target_id, scan_id, "Program opportunity scoring requested.")
+        if any(k in t for k in ["check bug bounty programs", "check programs", "program radar", "bounty radar", "find bounty programs", "online bug bounty", "new programs"]):
+            return ArchitectDecision("check_programs", False, 0.86, target_id, scan_id, "Bounty Program Radar check requested.")
+        if any(k in t for k in ["show programs", "list programs", "bounty programs", "programs list"]):
+            return ArchitectDecision("show_programs", False, 0.84, target_id, scan_id, "User asked to view stored bounty programs.")
+        if any(k in t for k in ["import program", "add program targets", "program targets"]):
+            return ArchitectDecision("add_program_targets", False, 0.78, target_id, scan_id, "User asked to import program scope as targets.")
+        if any(k in t for k in ["cancel", "stop scan", "stop running"]):
+            return ArchitectDecision("cancel_scan", False, 0.88, target_id, scan_id, "Cancel requested.")
+        if any(k in t for k in ["passive", "recon", "osint"]):
+            return ArchitectDecision("start_passive_scan", False, 0.9, target_id, scan_id, "Passive recon requested.")
+        if any(k in t for k in ["aggressive", "nuclei", "sqlmap", "ffuf", "active scan", "vulnerability scan"]):
+            return ArchitectDecision("start_aggressive_scan", True, 0.86, target_id, scan_id, "Active/aggressive tooling requested.")
+        if any(k in t for k in ["analyze", "bug brain", "mindset", "find bugs", "think like hacker", "finding bugs"]):
+            return ArchitectDecision("run_ai_analysis", False, 0.82, target_id, scan_id, "Post-scan bug reasoning requested.")
+        if any(k in t for k in ["show findings", "findings", "bugs found", "vulnerabilities found"]):
+            return ArchitectDecision("show_findings", False, 0.85, target_id, scan_id, "User asked to view findings.")
+        if any(k in t for k in ["show scans", "list scans", "scan status", "status"]):
+            return ArchitectDecision("show_scans", False, 0.78, target_id, scan_id, "User asked for scan status.")
+        if any(k in t for k in ["targets", "show targets", "list targets"]):
+            return ArchitectDecision("show_targets", False, 0.78, target_id, scan_id, "User asked for targets.")
+        if any(k in t for k in ["parse target", "target page", "pasted scope", "extract scope"]):
+            return ArchitectDecision("parse_target_page", False, 0.95, target_id, scan_id, "Bug bounty target page parsing requested.")
+
+        return ArchitectDecision("general_chat", False, 0.62, target_id, scan_id, "No direct tool command detected; reply as assistant.")
+
+    def think(self, transcript: str, decision: ArchitectDecision, obs: Dict[str, Any]) -> Dict[str, Any]:
+        route = model_router.route(transcript, decision.action, has_scan_context=bool(obs.get("scan")))
+        thought = {
+            "model_route": route.as_dict(),
+            "plan": [
+                "Use current target/scan context.",
+                "Choose workload expert using Mixture-of-Models router.",
+                "Call existing BountyOS action only; no raw shell from chat.",
+                "For live-data questions, call deterministic public API connectors instead of guessing.",
+                "For account hub commands, sync connected API/OAuth bounty accounts where permissions allow.",
+                "For program radar commands, fetch public/JSON program feeds and store scope metadata.",
+                "For easy-money requests, rank stored programs using Program Opportunity Scorer; never promise a guaranteed bounty.",
+                "Return action result and publish realtime event.",
+            ],
+        }
+        publish_sync("agent.think", thought)
+        return thought
+
+    def act(self, session: Session, background_tasks: Any, decision: ArchitectDecision, approve: bool = False, transcript: str = "") -> Dict[str, Any]:
+        action = decision.action
+        result: Dict[str, Any] = {"action": action, "ok": True}
+
+        if decision.needs_approval and not approve:
+            result.update({
+                "ok": False,
+                "requires_approval": True,
+                "message": "This action is active/aggressive. Send again with approve=true to run.",
+                "decision": decision.as_dict(),
+            })
+            publish_sync("approval.required", result)
+            return result
+
+        if action == "evaluate_agent_work":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available for evaluation.")
+            from api.quality import quality_engine
+            evaluation = quality_engine.evaluate_scan(session, decision.scan_id)
+            result.update({
+                "message": f"Agent Quality Loop evaluated {evaluation['summary']['total']} outputs. Average score: {evaluation['summary']['average_score']}/100.",
+                "scan_id": decision.scan_id,
+                "quality": evaluation,
+            })
+
+        elif action == "show_agent_quality":
+            from api.quality import quality_engine
+            result.update({
+                "message": "Agent quality and model performance loaded.",
+                "scan_id": decision.scan_id,
+                "quality": {
+                    "summary": quality_engine.summary(session, decision.scan_id),
+                    "evaluations": quality_engine.list(session, decision.scan_id)[:50],
+                    "performance": quality_engine.performance(session),
+                },
+            })
+
+        elif action == "retry_weak_work":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available for retry.")
+            from api.models import AgentEvaluation
+            from api.quality import retry_manager
+            weak = session.exec(
+                select(AgentEvaluation).where(
+                    AgentEvaluation.scan_id == decision.scan_id,
+                    AgentEvaluation.status.in_(["rejected", "retry"]),
+                ).order_by(AgentEvaluation.overall_score.asc(), AgentEvaluation.created_at.desc())
+            ).first()
+            if not weak:
+                result.update({"message": "No rejected or retry-required agent work was found.", "quality_ok": True})
+            else:
+                retried = retry_manager.retry(session, weak.id)
+                result.update({"message": retried.get("message", "Retry processed."), "retry": retried})
+
+        elif action == "run_hunter_workflow":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available for Hunter workflow.")
+            from api.intelligence import attack_graph, hypothesis_engine, adaptive_planner, shared_memory
+            graph = attack_graph.build(session, decision.scan_id)
+            hypotheses = hypothesis_engine.generate(session, decision.scan_id)
+            graph = attack_graph.build(session, decision.scan_id)
+            plans = adaptive_planner.plan(session, decision.scan_id)
+            from api.quality import quality_engine
+            quality = quality_engine.evaluate_scan(session, decision.scan_id, task_types=["hypothesis", "plan"])
+            result.update({
+                "message": "Full Hunter workflow completed: graph, hypotheses, adaptive plan and self-evaluation are ready.",
+                "scan_id": decision.scan_id,
+                "graph_summary": graph["summary"],
+                "hypotheses": hypotheses[:8],
+                "plans": plans[:8],
+                "quality": quality,
+                "memory": shared_memory.summary(session, decision.scan_id),
+            })
+
+        elif action == "generate_hunter_report":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available for report generation.")
+            from api.reporting import report_agent
+            report = report_agent.generate(session, decision.scan_id)
+            from api.models import BountyReport
+            from api.quality import quality_engine
+            report_row = session.get(BountyReport, report["id"])
+            evaluation = quality_engine.evaluate_report(session, report_row)
+            result.update({"message": f"Report generated with quality score {report['quality_score']}/100 and critic score {evaluation['overall_score']}/100.", "report": report, "quality_evaluation": evaluation})
+
+        elif action == "show_hypotheses":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available.")
+            from api.models import BugHypothesis
+            from api.intelligence import hypothesis_engine
+            rows = session.exec(select(BugHypothesis).where(BugHypothesis.scan_id == decision.scan_id).order_by(BugHypothesis.priority_score.desc())).all()
+            result.update({"message": f"Found {len(rows)} Hunter hypotheses.", "hypotheses": [hypothesis_engine.serialize(h) for h in rows[:20]]})
+
+        elif action == "show_attack_graph":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available.")
+            from api.intelligence import attack_graph
+            graph = attack_graph.snapshot(session, decision.scan_id)
+            result.update({"message": f"Attack graph has {graph['summary']['node_count']} nodes and {graph['summary']['edge_count']} edges.", "graph": graph})
+
+        elif action == "start_passive_scan":
+            if not decision.target_id:
+                raise ValueError("No target selected or available.")
+            target = session.get(Target, decision.target_id)
+            scan = Scan(target_id=target.id, mode=ScanMode.PASSIVE, config=json.dumps({"source":"architect_agent"}))
+            session.add(scan); session.commit(); session.refresh(scan)
+            from api.routes.scans import _run_passive_scan
+            background_tasks.add_task(_run_passive_scan, scan.id, target.domain, {"source":"architect_agent"}, target)
+            result.update({"message": "Passive scan started.", "scan_id": scan.id, "target": target.domain})
+
+        elif action == "start_aggressive_scan":
+            if not decision.target_id:
+                raise ValueError("No target selected or available.")
+            target = session.get(Target, decision.target_id)
+            scan = Scan(target_id=target.id, mode=ScanMode.AGGRESSIVE, config=json.dumps({"source":"architect_agent", "approved_from_chat": True}))
+            session.add(scan); session.commit(); session.refresh(scan)
+            from api.routes.scans import _run_aggressive_scan
+            background_tasks.add_task(_run_aggressive_scan, scan.id, target.domain, {"source":"architect_agent", "approved_from_chat": True}, target)
+            result.update({"message": "Aggressive scan started after approval.", "scan_id": scan.id, "target": target.domain})
+
+        elif action == "run_ai_analysis":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available for analysis.")
+            scan = session.get(Scan, decision.scan_id)
+            target = session.get(Target, scan.target_id)
+            from api.agents.coordinator import run_ai_coordinator
+            scan.phase = ScanPhase.EXPLOIT
+            scan.status = ScanStatus.RUNNING
+            session.add(scan); session.commit()
+            background_tasks.add_task(run_ai_coordinator, scan_id=scan.id, target_domain=target.domain, scope=target.scope, out_of_scope=target.out_of_scope, max_iterations=20)
+            result.update({"message": "AI bug reasoning started.", "scan_id": scan.id})
+
+        elif action == "cancel_scan":
+            if not decision.scan_id:
+                raise ValueError("No scan selected or available to cancel.")
+            from api.routes.scans import _cancelled_scans
+            _cancelled_scans.add(decision.scan_id)
+            result.update({"message": "Cancellation requested.", "scan_id": decision.scan_id})
+
+        elif action == "sync_bounty_accounts":
+            from api.agents.bounty_account_hub import account_hub
+            sync_result = account_hub.sync_all_accounts(session, max_items=200)
+            result.update({"message": "Connected bounty accounts sync complete.", **sync_result})
+
+        elif action == "show_bounty_accounts":
+            from api.agents.bounty_account_hub import account_hub
+            accounts = session.exec(select(BountyAccount).order_by(BountyAccount.created_at.desc())).all()
+            result.update({"message": f"Found {len(accounts)} connected bounty accounts.", "accounts": [account_hub.safe_account(a) for a in accounts[:25]]})
+
+        elif action == "check_programs":
+            from api.agents.program_radar import radar
+            radar_result = radar.check_sources(session, max_programs=500)
+            result.update({"message": "Bounty Program Radar check complete.", **radar_result})
+
+        elif action == "show_programs":
+            programs = session.exec(select(BountyProgram).order_by(BountyProgram.value_score.desc(), BountyProgram.last_seen_at.desc())).all()
+            result.update({"message": f"Found {len(programs)} bounty programs.", "programs": [p.model_dump(mode="json") for p in programs[:40]]})
+
+        elif action == "recommend_programs":
+            from api.agents.opportunity_scorer import opportunity_scorer
+            platform = None
+            low = transcript.lower()
+            for name in ["hackerone", "bugcrowd", "intigriti", "yeswehack"]:
+                if name in low:
+                    platform = name
+                    break
+            programs = session.exec(select(BountyProgram).order_by(BountyProgram.value_score.desc(), BountyProgram.last_seen_at.desc())).all()
+            if not programs:
+                from api.agents.program_radar import radar
+                radar.check_sources(session, max_programs=500)
+                programs = session.exec(select(BountyProgram).order_by(BountyProgram.value_score.desc(), BountyProgram.last_seen_at.desc())).all()
+            recommendations = opportunity_scorer.rank(programs, platform=platform, bounty_only=True, limit=8)
+            result.update({
+                "message": "I ranked stored bounty programs by likely reward vs effort. No program is guaranteed money; this is probability scoring.",
+                "platform": platform,
+                "recommendations": recommendations,
+            })
+
+        elif action == "add_program_targets":
+            from api.agents.program_radar import radar
+            program = session.exec(select(BountyProgram).order_by(BountyProgram.value_score.desc(), BountyProgram.last_seen_at.desc())).first()
+            if not program:
+                raise ValueError("No program found yet. Run 'check programs' first.")
+            imported = radar.add_program_targets(session, program.id, limit=25)
+            result.update({"message": f"Imported targets from {program.name}.", **imported})
+
+        elif action == "live_data_lookup":
+            live_result = live_data_agent.answer(transcript)
+            result.update(live_result.as_dict())
+            result["message"] = live_result.answer
+
+        elif action == "general_chat":
+            # Lightweight chat fallback for the command center. Full context-heavy chat remains /api/v1/ai/chat.
+            route = model_router.route(transcript, "chat", has_scan_context=bool(decision.scan_id))
+            lower = transcript.lower()
+            if any(k in lower for k in ["what can you do", "help", "capabilities"]):
+                answer = "I can answer general questions, check live data like USD rates/CVEs/crypto, run Program Radar, show targets/scans/findings, start passive recon, run AI analysis, and request approval for aggressive scans."
+            elif decision.scan_id:
+                answer = "I can use the selected scan context. Try: `show findings`, `summarize this scan`, `run AI analysis`, or ask what bug class to prioritize."
+            else:
+                answer = "I can reply as a lightweight assistant here. For deeper model answers, use the AI Chat page or configure Vertex AI or GEMINI_API_KEY/BOUNTYOS_MAIN_MODEL. For live questions like `today USD rate`, I call live-data tools."
+            result.update({"message": answer, "response": answer, "model_route": route.as_dict()})
+
+        elif action == "show_findings":
+            q = select(Finding)
+            if decision.scan_id:
+                q = q.where(Finding.scan_id == decision.scan_id)
+            findings = session.exec(q.order_by(Finding.created_at.desc())).all()
+            result.update({"message": f"Found {len(findings)} findings.", "findings": [f.model_dump(mode="json") for f in findings[:30]]})
+
+        elif action == "show_scans":
+            scans = session.exec(select(Scan).order_by(Scan.created_at.desc())).all()
+            result.update({"message": f"Found {len(scans)} scans.", "scans": [s.model_dump(mode="json") for s in scans[:25]]})
+
+        elif action == "show_targets":
+            targets = session.exec(select(Target).order_by(Target.created_at.desc())).all()
+            result.update({"message": f"Found {len(targets)} targets.", "targets": [t.model_dump(mode="json") for t in targets[:25]]})
+
+        elif action == "parse_target_page":
+            from api.ai import get_ai_client
+            ai_client = get_ai_client()
+            model = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+
+            prompt = (
+                "Extract the following information from the bug bounty target page content:\n"
+                "- Scope (In-scope domains/assets)\n"
+                "- Out-of-scope assets\n"
+                "- Rewards (bounty ranges if available)\n"
+                "- Rules (important rules of engagement)\n"
+                "- Technologies (detected or mentioned)\n"
+                "- Recommended scan profile (e.g. passive-only, web-heavy, mobile, etc.)\n\n"
+                "Format the output as a clear Markdown report. Be technical and precise."
+            )
+
+            try:
+                response = ai_client.messages.create(
+                    model=model,
+                    max_tokens=2048,
+                    system="You are a bug bounty reconnaissance expert. Your goal is to parse program documentation and extract actionable scope data.",
+                    messages=[{"role": "user", "content": f"{prompt}\n\nCONTENT:\n{transcript}"}],
+                )
+                text = "".join(b.text for b in response.content if b.type == "text")
+                result.update({
+                    "message": "Target page parsed successfully.",
+                    "response": text,
+                })
+            except Exception as e:
+                result.update({"ok": False, "message": f"Parsing failed: {e}"})
+
+        else:
+            result.update({"message": "I can run passive recon, check public bug bounty programs, sync connected bounty accounts, import program targets, approved aggressive scans, AI analysis, show findings/scans/targets/programs/accounts, or cancel scans."})
+
+        publish_sync("agent.act", result)
+        return result
+
+    def handle(self, session: Session, background_tasks: Any, transcript: str, selected_target_id: Optional[str] = None, selected_scan_id: Optional[str] = None, approve: bool = False) -> Dict[str, Any]:
+        set_agent_state(status="observing", stage="observe", last_action=transcript)
+        obs = self.observe(session, transcript, selected_target_id, selected_scan_id)
+        set_agent_state(status="reasoning", stage="reason")
+        decision = self.reason(transcript, obs)
+        set_agent_state(status="thinking", stage="think")
+        thought = self.think(transcript, decision, obs)
+        set_agent_state(status="acting", stage="act", model_expert=thought["model_route"]["expert"], last_action=decision.action)
+        try:
+            result = self.act(session, background_tasks, decision, approve=approve, transcript=transcript)
+        finally:
+            set_agent_state(status="idle", stage="observe")
+        return {
+            "observe": obs,
+            "reason": decision.as_dict(),
+            "think": thought,
+            "act": result,
+        }

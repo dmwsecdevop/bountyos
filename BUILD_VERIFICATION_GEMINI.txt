@@ -1,0 +1,19 @@
+BountyOS v5.1 Gemini / Vertex AI migration verification
+
+- Python compileall: PASS
+- Clean imports with google-genai: PASS
+- FastAPI import: PASS
+- FastAPI routes: 113 expected after provider-test route
+- /health provider metadata: PASS
+- /api/v1/ai/provider: PASS
+- Anthropic package removed from requirements: PASS
+- Active api/ code Anthropic imports: NONE
+- Gemini compatibility tool-call conversion: PASS (offline synthetic test)
+- Multi-turn tool-result conversion: PASS (offline synthetic test)
+- React/Vite production build: PASS
+- Static production bundle copied to /static: PASS
+
+Live Vertex AI request is not executed in this build container. The user's GCP
+project separately returned "Gemini connection working" and both Cloud Run and
+worker VM use service account 746092862007-compute@developer.gserviceaccount.com,
+which has roles/aiplatform.user.

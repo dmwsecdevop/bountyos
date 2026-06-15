@@ -1,0 +1,11 @@
+# BountyOS - Python dependencies
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+sqlmodel>=0.0.19
+python-multipart>=0.0.9
+httpx>=0.27.0
+websockets>=12.0
+google-genai>=1.20.0   # Gemini / Vertex AI agents
+python-jose[cryptography]>=3.3.0  # Phase 4: JWT auth
+passlib[bcrypt]>=1.7.4            # Phase 4: password hashing
+networkx>=3.2

@@ -1,0 +1,625 @@
+{
+  "aircrack-ng": {
+    "binary": "aircrack-ng",
+    "category": "wireless",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--help"
+  },
+  "amass": {
+    "binary": "amass",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "version"
+  },
+  "anonsurf": {
+    "binary": "anonsurf",
+    "category": "anonymity",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--help"
+  },
+  "aquatone": {
+    "binary": "aquatone",
+    "category": "webprobe",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "-version"
+  },
+  "arjun": {
+    "binary": "arjun",
+    "category": "param",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "autopsy": {
+    "binary": "autopsy",
+    "category": "disk",
+    "passive_safe": null,
+    "phase": "forensics",
+    "version_flag": "--version"
+  },
+  "beef": {
+    "binary": "beef-xss",
+    "category": "browser",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "bettercap": {
+    "binary": "bettercap",
+    "category": "mitm",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "binwalk": {
+    "binary": "binwalk",
+    "category": "firmware",
+    "passive_safe": null,
+    "phase": "forensics",
+    "version_flag": "--help"
+  },
+  "cewl": {
+    "binary": "cewl",
+    "category": "wordlist",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "commix": {
+    "binary": "commix",
+    "category": "injection",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "corscanner": {
+    "binary": "corscanner",
+    "category": "misconfiguration",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "-h"
+  },
+  "crackmapexec": {
+    "binary": "crackmapexec",
+    "category": "network_auth",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "crunch": {
+    "binary": "crunch",
+    "category": "wordlist",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "curl": {
+    "binary": "curl",
+    "category": "http",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "dalfox": {
+    "binary": "dalfox",
+    "category": "injection",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "version"
+  },
+  "dirsearch": {
+    "binary": "dirsearch",
+    "category": "fuzzing",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "dmitry": {
+    "binary": "dmitry",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "dnsenum": {
+    "binary": "dnsenum",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "dnsrecon": {
+    "binary": "dnsrecon",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "dnsx": {
+    "binary": "dnsx",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "-version"
+  },
+  "droopescan": {
+    "binary": "droopescan",
+    "category": "cms",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "enum4linux": {
+    "binary": "enum4linux",
+    "category": "smb",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "enum4linux-ng": {
+    "binary": "enum4linux-ng",
+    "category": "smb",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "exiftool": {
+    "binary": "exiftool",
+    "category": "metadata",
+    "passive_safe": null,
+    "phase": "forensics",
+    "version_flag": "-ver"
+  },
+  "feroxbuster": {
+    "binary": "feroxbuster",
+    "category": "fuzzing",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "ffuf": {
+    "binary": "ffuf",
+    "category": "fuzzing",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "-V"
+  },
+  "fierce": {
+    "binary": "fierce",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "foremost": {
+    "binary": "foremost",
+    "category": "carving",
+    "passive_safe": null,
+    "phase": "forensics",
+    "version_flag": "-V"
+  },
+  "gau": {
+    "binary": "gau",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "git": {
+    "binary": "git",
+    "category": "vcs",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "gitleaks": {
+    "binary": "gitleaks",
+    "category": "secrets",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "version"
+  },
+  "go": {
+    "binary": "go",
+    "category": "lang",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "version"
+  },
+  "gobuster": {
+    "binary": "gobuster",
+    "category": "fuzzing",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "version"
+  },
+  "gowitness": {
+    "binary": "gowitness",
+    "category": "webprobe",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "version"
+  },
+  "hashcat": {
+    "binary": "hashcat",
+    "category": "cracking",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "headers": {
+    "binary": "curl",
+    "category": "misconfiguration",
+    "passive_safe": true,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "httpx": {
+    "binary": "httpx",
+    "category": "webprobe",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "-version"
+  },
+  "hydra": {
+    "binary": "hydra",
+    "category": "bruteforce",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "john": {
+    "binary": "john",
+    "category": "cracking",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "joomscan": {
+    "binary": "joomscan",
+    "category": "cms",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "jq": {
+    "binary": "jq",
+    "category": "util",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "jwt_tool": {
+    "binary": "jwt_tool",
+    "category": "auth",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--help"
+  },
+  "kismet": {
+    "binary": "kismet",
+    "category": "wireless",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "maltego": {
+    "binary": "maltego",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "masscan": {
+    "binary": "masscan",
+    "category": "portscan",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "massdns": {
+    "binary": "massdns",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--help"
+  },
+  "medusa": {
+    "binary": "medusa",
+    "category": "bruteforce",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "metasploit": {
+    "binary": "msfconsole",
+    "category": "framework",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "nc": {
+    "binary": "nc",
+    "category": "network",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "netcat": {
+    "binary": "netcat",
+    "category": "network",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "netexec": {
+    "binary": "netexec",
+    "category": "network_auth",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "nikto": {
+    "binary": "nikto",
+    "category": "webapp",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "-Version"
+  },
+  "nmap": {
+    "binary": "nmap",
+    "category": "portscan",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "nuclei": {
+    "binary": "nuclei",
+    "category": "webapp",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "-version"
+  },
+  "openvas": {
+    "binary": "openvas",
+    "category": "webapp",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "proxychains": {
+    "binary": "proxychains4",
+    "category": "anonymity",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--help"
+  },
+  "python3": {
+    "binary": "python3",
+    "category": "lang",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "reaver": {
+    "binary": "reaver",
+    "category": "wireless",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "recon-ng": {
+    "binary": "recon-ng",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "responder": {
+    "binary": "responder",
+    "category": "network_auth",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "ruby": {
+    "binary": "ruby",
+    "category": "lang",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "rustscan": {
+    "binary": "rustscan",
+    "category": "portscan",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "searchsploit": {
+    "binary": "searchsploit",
+    "category": "framework",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--version"
+  },
+  "secretsdump": {
+    "binary": "impacket-secretsdump",
+    "category": "credentials",
+    "passive_safe": null,
+    "phase": "exploit",
+    "version_flag": "--help"
+  },
+  "shodan": {
+    "binary": "shodan",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "snmpwalk": {
+    "binary": "snmpwalk",
+    "category": "network",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "socat": {
+    "binary": "socat",
+    "category": "network",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "-V"
+  },
+  "sqlmap": {
+    "binary": "sqlmap",
+    "category": "injection",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "sslscan": {
+    "binary": "sslscan",
+    "category": "tls",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "ssrfmap": {
+    "binary": "ssrfmap",
+    "category": "injection",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "-h"
+  },
+  "strings": {
+    "binary": "strings",
+    "category": "binary",
+    "passive_safe": null,
+    "phase": "forensics",
+    "version_flag": "--version"
+  },
+  "subfinder": {
+    "binary": "subfinder",
+    "category": "subdomain",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "-version"
+  },
+  "subjack": {
+    "binary": "subjack",
+    "category": "subdomain_takeover",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "-h"
+  },
+  "subzy": {
+    "binary": "subzy",
+    "category": "subdomain_takeover",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "version"
+  },
+  "tcpdump": {
+    "binary": "tcpdump",
+    "category": "capture",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "testssl": {
+    "binary": "testssl.sh",
+    "category": "tls",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "theharvester": {
+    "binary": "theharvester",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "trufflehog": {
+    "binary": "trufflehog",
+    "category": "secrets",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "unicornscan": {
+    "binary": "unicornscan",
+    "category": "portscan",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "volatility": {
+    "binary": "volatility3",
+    "category": "memory",
+    "passive_safe": null,
+    "phase": "forensics",
+    "version_flag": "--version"
+  },
+  "wafw00f": {
+    "binary": "wafw00f",
+    "category": "webprobe",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "waybackurls": {
+    "binary": "waybackurls",
+    "category": "osint",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "-h"
+  },
+  "wfuzz": {
+    "binary": "wfuzz",
+    "category": "fuzzing",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "wget": {
+    "binary": "wget",
+    "category": "http",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "whatweb": {
+    "binary": "whatweb",
+    "category": "webprobe",
+    "passive_safe": null,
+    "phase": "recon",
+    "version_flag": "--version"
+  },
+  "wifite": {
+    "binary": "wifite",
+    "category": "wireless",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  },
+  "wireshark": {
+    "binary": "wireshark",
+    "category": "capture",
+    "passive_safe": null,
+    "phase": "util",
+    "version_flag": "--version"
+  },
+  "wpscan": {
+    "binary": "wpscan",
+    "category": "cms",
+    "passive_safe": null,
+    "phase": "vulnscan",
+    "version_flag": "--version"
+  }
+}

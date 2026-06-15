@@ -1,0 +1,37 @@
+# Build cloud-safe Go security tools.
+# Pin the Go builder so ProjectDiscovery tools compile reproducibly.
+FROM golang:1.25.11-bookworm AS toolbuilder
+
+ENV GOBIN=/out \
+    GOTOOLCHAIN=auto
+
+RUN mkdir -p /out && \
+    CGO_ENABLED=0 go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.14.0 && \
+    CGO_ENABLED=0 go install github.com/projectdiscovery/httpx/cmd/httpx@v1.9.0 && \
+    CGO_ENABLED=0 go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.7.1 && \
+    CGO_ENABLED=0 go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.0 && \
+    CGO_ENABLED=1 go install github.com/projectdiscovery/katana/cmd/katana@v1.6.1 && \
+    CGO_ENABLED=0 go install github.com/ffuf/ffuf/v2@v2.1.0 && \
+    CGO_ENABLED=0 go install github.com/lc/gau/v2/cmd/gau@v2.2.4 && \
+    CGO_ENABLED=0 go install github.com/tomnomnom/waybackurls@v0.1.0 && \
+    CGO_ENABLED=0 go install github.com/tomnomnom/assetfinder@v0.1.1
+
+FROM python:3.11-slim
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl wget git jq unzip nmap dnsutils whois \
+    && (apt-get install -y --no-install-recommends whatweb nikto gobuster sqlmap wafw00f || true) \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=toolbuilder /out/ /usr/local/bin/
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+
+ENV PORT=8080 \
+    PATH=/usr/local/bin:$PATH \
+    BOUNTYOS_EXECUTION_MODE=hybrid
+EXPOSE 8080
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
