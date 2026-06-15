@@ -1,7 +1,7 @@
 # BountyOS — Autonomous Bug Bounty Platform
 
 Full-stack, AI-powered bug bounty automation framework.
-FastAPI backend + React dashboard + dual Claude-powered agents.
+FastAPI backend + React dashboard + Gemini/Vertex-powered agents.
 
 ---
 
@@ -77,10 +77,23 @@ go install github.com/ffuf/ffuf/v2@latest
 apt install sqlmap -y
 ```
 
-### 3. Set API key
+### 3. Configure Gemini or Vertex AI
+
+For Gemini Developer API:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export BOUNTYOS_MAIN_PROVIDER=gemini
+export BOUNTYOS_MAIN_MODEL=gemini-2.5-flash
+export GEMINI_API_KEY=...
+```
+
+For Vertex AI:
+
+```bash
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT=your-gcp-project
+export GOOGLE_CLOUD_LOCATION=global
+export BOUNTYOS_MAIN_MODEL=gemini-2.5-flash
 ```
 
 ### 4. Run
@@ -176,7 +189,12 @@ VULNSCAN_TOOLS["mytool"] = MyTool()
 
 | Variable           | Default             | Description |
 |--------------------|---------------------|-------------|
-| ANTHROPIC_API_KEY  | required            | Used by Coordinator + Exploit Agent + AI Chat |
+| BOUNTYOS_MAIN_PROVIDER | gemini | Main provider routing hint for Gemini/Vertex-compatible flows |
+| BOUNTYOS_MAIN_MODEL | gemini-2.5-flash | Main Gemini model used by Coordinator + Exploit Agent + AI Chat |
+| GEMINI_API_KEY | optional | Gemini Developer API key for local/non-Vertex runs |
+| GOOGLE_GENAI_USE_VERTEXAI | false | Set `true` when using Vertex AI credentials |
+| GOOGLE_CLOUD_PROJECT | optional | GCP project for Vertex AI |
+| GOOGLE_CLOUD_LOCATION | global | Vertex AI location |
 | DATABASE_URL       | sqlite:///./bountyos.db | Swap to `postgresql://...` for production |
 
 ---
@@ -221,9 +239,9 @@ Environment variables:
 ```bash
 export BOUNTYOS_LOCAL_MODEL="heuristic-local"
 export BOUNTYOS_LIGHT_MODEL="heuristic-light"
-export BOUNTYOS_MAIN_PROVIDER="anthropic"
-export BOUNTYOS_MAIN_MODEL="claude-opus-4-5"
-export BOUNTYOS_EXPLOIT_MODEL="claude-opus-4-5"
+export BOUNTYOS_MAIN_PROVIDER="gemini"
+export BOUNTYOS_MAIN_MODEL="gemini-2.5-flash"
+export BOUNTYOS_EXPLOIT_MODEL="gemini-2.5-pro"
 ```
 
 Routing:
@@ -582,6 +600,30 @@ curl -X POST http://localhost:8000/api/v1/quality/evaluations/EVALUATION_ID/retr
 
 Chat commands include `evaluate agent work`, `show quality scores`, `show model performance`, and `retry weak work`.
 
+
+## Collaborative Debate Engine
+
+The Collaborative Debate Engine reviews high and critical findings before reporting. It runs a Skeptic → Proponent → Verdict flow: the Skeptic challenges evidence quality, reproducibility, false-positive risk, severity, scope ambiguity, and missing second confirmation; the Proponent defends or concedes using existing evidence only; and the Verdict step returns `CONFIRMED`, `DOWNGRADED`, `REJECTED`, or `NEEDS_EVIDENCE`. Debate records are persisted for auditability.
+
+The engine is Gemini/Vertex provider compatible through the existing BountyOS AI routing layer. It is production-safe and review-only: it does not execute tools, exploits, scans, shell commands, HTTP requests, payloads, or destructive actions. It is disabled by default.
+
+Environment variables:
+
+```bash
+export BOUNTYOS_DEBATE_ENABLED=true
+export BOUNTYOS_DEBATE_MODEL=gemini-2.5-flash
+# Optional tuning
+export BOUNTYOS_DEBATE_TIMEOUT_SECONDS=60
+export BOUNTYOS_DEBATE_MAX_TOKENS=1500
+```
+
+API examples:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/debate/findings/FINDING_ID/run
+curl -X POST http://localhost:8000/api/v1/debate/scans/SCAN_ID/run
+```
+
 ## v5.2 Gemini Hybrid Runner
 
 BountyOS can now execute tools in three locations:
@@ -593,3 +635,40 @@ BountyOS can now execute tools in three locations:
 Open **RUNNERS** in the dashboard to create a runner token, choose the execution mode, inspect the real remote inventory, and review tool-job evidence. The Linux runner authenticates inside the encrypted WebSocket rather than placing its token in the URL.
 
 See `RUNNER_BRIDGE_GUIDE.md` for deployment and Parrot/worker setup.
+
+## Agentic Command Center Upgrade
+
+This upgrade adds the BountyOS Agentic Command Center while intentionally excluding Sandbox Runner. BountyOS remains Gemini/Vertex-first and does not add Anthropic/Claude dependencies.
+
+New safe-by-default modules:
+
+- **Gemini/Vertex AI Router Cleanup** — provider-neutral model selection for `fast_chat`, `recon_summary`, `bug_reasoning`, `debate_review`, and `report_writing`.
+- **Skill Registry** — descriptive metadata for recon, validation, cloud, mobile, and reporting skills. It never executes tools; high-risk skills such as `sqlmap`, aggressive `nmap`, active/high-risk `nuclei`, `dalfox`, `adb`, and `frida` require approval.
+- **Agent Task Manager** — async task, event, and artifact state for the command center UI. It is orchestration/state only and does not start scans by itself.
+- **Knowledge Graph** — stores sanitized historical techniques, attempts, chains, and agent context. Historical knowledge is untrusted context.
+- **Takeover Monitor** — disabled by default, scope-guarded subdomain takeover candidate tracking.
+- **Collaborative Debate Engine** — review-only high/critical finding review with Skeptic → Proponent → Verdict records.
+- **Browser Agent metadata** — DevTools MCP capability/session metadata only; no browser navigation or automation by default.
+- **Mobile APK Hunter** — static-analysis metadata shell for manifests, permissions, exported components, and mobile checklists. It does not run ADB/Frida by default.
+- **Report Builder** — bounty report drafts from existing finding fields with deterministic fallback that marks missing evidence instead of inventing it.
+- **Agent Revisions/Evals** — revision records and basic safety evals for approval defaults, disabled defaults, redaction, and report fallback behavior.
+- **Cloud Run hardening** — `.dockerignore`, `.env.example`, private Cloud Run guidance, and Cloud SQL Postgres documentation.
+
+Sandbox Runner is intentionally not included: no isolated code execution sandbox, no Cloud Run sandbox worker, and no destructive automation were added.
+
+### Safe mode and authorization
+
+- `BOUNTYOS_EXECUTION_MODE=passive` is the recommended default, especially on Cloud Run.
+- Active modules are disabled by default: `BOUNTYOS_DEBATE_ENABLED=false`, `BOUNTYOS_TAKEOVER_ENABLED=false`, and `BOUNTYOS_BROWSER_AGENT_ENABLED=false`.
+- Approval is required for high-risk skills.
+- Use BountyOS only for authorized testing and in-scope targets.
+
+### Database backend
+
+BountyOS supports SQLite for local/dev testing and Cloud SQL Postgres for production. `DATABASE_URL` controls the backend. If `DATABASE_URL` starts with `postgresql://`, BountyOS normalizes it to `postgresql+psycopg://`; Cloud SQL Unix socket URLs are supported.
+
+See [`docs/CLOUD_SQL_POSTGRES.md`](docs/CLOUD_SQL_POSTGRES.md) for the Cloud SQL guide. For personal Google Cloud deployment, Cloud SQL is recommended once you want persistent targets, scans, findings, agent tasks, and knowledge graph records.
+
+### Cloud Run deployment
+
+See [`docs/CLOUD_RUN_DEPLOY.md`](docs/CLOUD_RUN_DEPLOY.md) for a private Cloud Run deployment guide. Heavy scanners should run on a remote runner instead of the main Cloud Run web image.

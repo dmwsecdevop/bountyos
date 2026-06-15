@@ -1,6 +1,6 @@
 """Gemini / Vertex AI compatibility provider for BountyOS.
 
-The original BountyOS agents used Anthropic's ``messages.create`` interface.
+BountyOS agents use a small ``messages.create`` compatibility interface.
 This adapter intentionally exposes the small subset of that interface used by
 BountyOS, while sending requests through Google's current ``google-genai`` SDK.
 It lets the existing agent loops, tool dispatchers, approvals, and dashboard

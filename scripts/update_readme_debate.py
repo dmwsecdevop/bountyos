@@ -4,15 +4,15 @@ from pathlib import Path
 README = Path(__file__).resolve().parents[1] / "README.md"
 text = README.read_text(encoding="utf-8")
 
-# Replace Claude/Anthropic mentions with Gemini/Vertex where reasonable
-text = text.replace("dual Claude-powered agents", "Gemini/Vertex-powered agents")
-text = text.replace("ANTHROPIC_API_KEY", "GEMINI_API_KEY")
+# Replace Gemini/Vertex mentions with Gemini/Vertex where reasonable
+text = text.replace("Gemini/Vertex-powered agents", "Gemini/Vertex-powered agents")
+text = text.replace("GEMINI_API_KEY", "GEMINI_API_KEY")
 text = text.replace("ANTHROPIC", "GEMINI")
-text = text.replace("claude", "gemini")
+text = text.replace("gemini", "gemini")
 
 # Update model routing example
 text = text.replace(
-    'export BOUNTYOS_MAIN_PROVIDER="anthropic"\nexport BOUNTYOS_MAIN_MODEL="claude-opus-4-5"\nexport BOUNTYOS_EXPLOIT_MODEL="claude-opus-4-5"',
+    'export BOUNTYOS_MAIN_PROVIDER="gemini"\nexport BOUNTYOS_MAIN_MODEL="gemini-opus-4-5"\nexport BOUNTYOS_EXPLOIT_MODEL="gemini-opus-4-5"',
     'export BOUNTYOS_MAIN_PROVIDER="gemini"\nexport BOUNTYOS_MAIN_MODEL="gemini-2.5-flash"\nexport BOUNTYOS_EXPLOIT_MODEL="gemini-2.5-pro"'
 )
 

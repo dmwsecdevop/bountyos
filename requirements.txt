@@ -9,3 +9,6 @@ google-genai>=1.20.0   # Gemini / Vertex AI agents
 python-jose[cryptography]>=3.3.0  # Phase 4: JWT auth
 passlib[bcrypt]>=1.7.4            # Phase 4: password hashing
 networkx>=3.2
+
+psycopg[binary]>=3.2.0
+dnspython>=2.6.1

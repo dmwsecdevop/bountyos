@@ -36,7 +36,7 @@ _client = get_ai_client()
 
 MODEL = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
 
-# ─── Tool definitions exposed to Claude ──────────────────────────────────────
+# ─── Tool definitions exposed to Gemini ──────────────────────────────────────
 # These are the actions Gemini can request. Each maps to a handler below.
 
 AI_TOOLS = [
@@ -403,7 +403,7 @@ async def run_ai_coordinator(
     max_iterations: int = 30,
 ) -> None:
     """
-    Agentic loop: sends messages to Claude, handles tool calls,
+    Agentic loop: sends messages to Gemini, handles tool calls,
     feeds results back, loops until finish_analysis is called or
     the iteration cap is hit.
     """
