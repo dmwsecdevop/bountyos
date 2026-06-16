@@ -77,7 +77,17 @@ go install github.com/ffuf/ffuf/v2@latest
 apt install sqlmap -y
 ```
 
-### 3. Set API key
+### 3. Configure Gemini or Vertex AI
+
+For Gemini Developer API:
+
+```bash
+export BOUNTYOS_MAIN_PROVIDER=gemini
+export BOUNTYOS_MAIN_MODEL=gemini-2.5-flash
+export GEMINI_API_KEY=...
+```
+
+For Vertex AI:
 
 ```bash
 # For Gemini Developer API

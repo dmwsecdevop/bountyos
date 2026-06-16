@@ -244,7 +244,7 @@ export default function Integrations() {
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)', marginBottom: 10, letterSpacing: 1 }}>ENVIRONMENT VARIABLES</div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-dim)', lineHeight: 2 }}>
           {[
-            ['ANTHROPIC_API_KEY', 'sk-ant-... (required for all AI agents)'],
+            ['GEMINI_API_KEY', '... (Gemini Developer API key for local mode)'],
             ['CAIDO_API_TOKEN',   'your Caido API key'],
             ['CAIDO_URL',         'http://localhost:8080 (default)'],
             ['BURP_APIKEY',       'your Burp Suite REST API key'],

@@ -67,7 +67,7 @@ function HunterChat({targets, scans, refresh}){
   const [approve,setApprove]=useState(false);
   const [busy,setBusy]=useState(false);
   const [messages,setMessages]=useState([
-    {role:'system', text:'Hunter Brain online. Paste a target/program page, ask for recon, review findings, or trigger scans. Gemini/Vertex model routing is preferred; no Claude workflow required.'}
+    {role:'system', text:'Hunter Brain online. Paste a target/program page, ask for recon, review findings, or trigger scans. Gemini/Vertex model routing is preferred; no legacy provider workflow required.'}
   ]);
   const [extracted,setExtracted]=useState(null);
   const bottom=useRef(null);
@@ -209,6 +209,49 @@ function ProgramEarningsPanel({live}){
   return <Card title="PROGRAM RADAR + EARNINGS"><div className="runner-box"><Stat label="programs" value={programs.length}/><Stat label="accounts" value={accounts.length}/><Stat label="month" value="$0" tone="green"/><Stat label="ROI" value="learn"/></div><div className="list compact">{programs.slice(0,8).map(p=><div className="row" key={p.id}><div><b>{p.name}</b><span>{p.platform} · score {p.value_score}</span></div><Pill tone={p.offers_bounty?'green':'warn'}>{p.offers_bounty?'bounty':'vdp'}</Pill></div>)}{!programs.length&&<div className="empty">Sync bounty accounts or run Program Radar.</div>}</div></Card>
 }
 
+function CommandCenterUpgrade(){
+  const [data,setData]=useState({skills:[],tasks:[],takeovers:[],browser:null,mobile:null,templates:[],evals:[],kg:null});
+  const [findingId,setFindingId]=useState('');
+  const [debate,setDebate]=useState(null);
+  const [report,setReport]=useState(null);
+  const [template,setTemplate]=useState('Generic Markdown');
+  const [apk,setApk]=useState({filename:'app.apk',package_name:''});
+  const refresh=async()=>{
+    const [skills,tasks,takeovers,browser,mobile,templates,evals,kg]=await Promise.all([
+      request('/skills/').catch(()=>[]), request('/tasks/').catch(()=>[]), request('/takeovers/open').catch(()=>[]),
+      request('/browser/capabilities').catch(()=>null), request('/mobile/capabilities').catch(()=>null), request('/reports/templates').catch(()=>[]),
+      request('/evals/results').catch(()=>[]), request('/knowledge/stats').catch(()=>null),
+    ]);
+    setData({skills,tasks,takeovers,browser,mobile,templates,evals,kg});
+  };
+  useEffect(()=>{refresh();},[]);
+  const runDebate=async()=>{ if(!findingId) return; setDebate(await request(`/debate/findings/${findingId}/run`,{method:'POST'}).catch(e=>({error:e.message}))); };
+  const getRecords=async()=>{ if(!findingId) return; setDebate(await request(`/debate/records/${findingId}`).catch(e=>({error:e.message}))); };
+  const genReport=async()=>{ if(!findingId) return; setReport(await request(`/reports/finding/${findingId}/draft?template=${encodeURIComponent(template)}`,{method:'POST'}).catch(e=>({error:e.message}))); };
+  const runEvals=async()=>{ await request('/evals/run-basic',{method:'POST'}).catch(()=>null); await refresh(); };
+  const saveApk=async()=>{ await request('/mobile/apk/metadata',{method:'POST',body:JSON.stringify({...apk,permissions:[],exported_components:[],findings:[]})}).catch(()=>null); await refresh(); };
+  const approvalCount=data.skills.filter(s=>s.requires_approval).length;
+  const passiveCount=data.skills.filter(s=>s.passive_safe).length;
+  return <>
+    <section className="metrics"><Stat label="registered skills" value={data.skills.length}/><Stat label="passive safe" value={passiveCount} tone="green"/><Stat label="approval required" value={approvalCount} tone="warn"/><Stat label="tasks" value={data.tasks.length}/></section>
+    <section className="three">
+      <Card title="AGENT COMMAND CENTER" action={<Pill>Tasks</Pill>}><div className="warning">Orchestration/state UI only — does not execute scans.</div><div className="list">{data.tasks.slice(0,6).map(t=><div className="row" key={t.id}><div><b>{t.title}</b><span>{t.agent_name} · {t.progress}%</span></div><Pill tone={t.status==='completed'?'green':t.status==='failed'?'red':'warn'}>{t.status}</Pill></div>)}{!data.tasks.length&&<div className="empty">No agent tasks yet.</div>}</div></Card>
+      <Card title="SKILL REGISTRY" action={<Pill>{data.skills.length} tools</Pill>}><div className="chips"><Pill tone="green">passive</Pill><Pill tone="warn">approval</Pill><Pill tone="red">critical</Pill></div><div className="list compact">{data.skills.slice(0,12).map(s=><div className="row" key={s.name}><div><b>{s.display_name}</b><span>{s.category} · {s.phase}</span></div><Pill tone={s.requires_approval?'warn':s.passive_safe?'green':'accent'}>{s.risk_level}</Pill></div>)}</div></Card>
+      <Card title="KNOWLEDGE GRAPH" action={<Pill tone="purple">Memory</Pill>}><div className="runner-box"><Stat label="techniques" value={data.kg?.total_techniques??0}/><Stat label="chains" value={data.kg?.total_chains??0}/><Stat label="attempts" value={data.kg?.total_attempts??0}/><Stat label="success" value={data.kg?.overall_success_rate??0}/></div><pre className="mini-pre">{safeJson(data.kg?.known_technologies||[])}</pre></Card>
+    </section>
+    <section className="three">
+      <Card title="TAKEOVER MONITOR" action={<Pill tone="warn">Disabled default</Pill>}><div className="warning">Scope-guarded; no arbitrary out-of-scope scans.</div><div className="list compact">{data.takeovers.map(c=><div className="row" key={c.id}><div><b>{c.domain}</b><span>{c.service||'unknown'} · {c.cname||'no cname'}</span></div><Pill>{c.status}</Pill></div>)}{!data.takeovers.length&&<div className="empty">No open takeover candidates.</div>}</div></Card>
+      <Card title="DEBATE ENGINE" action={<Pill tone="warn">Review-only</Pill>}><div className="warning">Disabled by default. Evidence is treated as untrusted.</div><div className="select-row"><input value={findingId} onChange={e=>setFindingId(e.target.value)} placeholder="Finding ID"/><button onClick={runDebate}>RUN</button></div><div className="actions"><button onClick={getRecords}>LOAD RECORDS</button></div><pre className="mini-pre">{safeJson(debate||{})}</pre></Card>
+      <Card title="BROWSER DEVTOOLS MCP" action={<Pill tone={data.browser?.enabled?'green':'warn'}>{data.browser?.enabled?'enabled':'disabled'}</Pill>}><div className="warning">Metadata/capabilities only; no navigation.</div><div className="chips">{(data.browser?.capabilities||[]).map(c=><Pill key={c}>{c}</Pill>)}</div></Card>
+    </section>
+    <section className="three">
+      <Card title="MOBILE APK HUNTER" action={<Pill>Static shell</Pill>}><div className="chips">{(data.mobile?.capabilities||[]).slice(0,7).map(c=><Pill key={c}>{c}</Pill>)}</div><div className="select-row"><input value={apk.filename} onChange={e=>setApk({...apk,filename:e.target.value})}/><button onClick={saveApk}>SAVE APK META</button></div></Card>
+      <Card title="REPORT BUILDER" action={<Pill>Templates</Pill>}><div className="select-row"><select value={template} onChange={e=>setTemplate(e.target.value)}>{(data.templates.length?data.templates:['Generic Markdown']).map(t=><option key={t}>{t}</option>)}</select><button onClick={genReport}>DRAFT</button></div><pre className="mini-pre">{safeJson(report||{})}</pre></Card>
+      <Card title="EVALS / REVISIONS" action={<Pill tone="purple">Harness</Pill>}><button onClick={runEvals} className="primary">RUN BASIC EVALS</button><div className="list compact">{data.evals.slice(0,8).map(e=><div className="row" key={e.id}><div><b>{e.test_name}</b><span>{e.details}</span></div><Pill tone={e.status==='pass'?'green':e.status==='fail'?'red':'warn'}>{e.status}</Pill></div>)}</div></Card>
+    </section>
+  </>;
+}
+
 export default function App(){
   const {live, targets, scans, findings, runners, models, upgrades, err, refresh} = useDashboardData();
   const recentScans = live?.recent_scans || scans || [];
@@ -222,7 +265,8 @@ export default function App(){
       <section className="metrics"><Stat label="targets" value={(targets||[]).length}/><Stat label="scans" value={(recentScans||[]).length}/><Stat label="findings" value={(recentFindings||[]).length}/><Stat label="critical/high" value={(severity.critical||0)+(severity.high||0)} tone="bad"/></section>
       <section className="three"><TargetsPanel targets={targets||[]}/><ScansPanel scans={recentScans||[]}/><FindingsPanel findings={recentFindings||[]}/></section>
       <section className="two"><HunterBrainPanel live={live} upgrades={upgrades}/><KnowledgePanel/></section>
-      <section className="two"><ProgramEarningsPanel live={live}/><Card title="LIVE TERMINAL"><div className="terminal"><p>$ hunter brain ready</p><p>$ paste target page → extract scope → create target → scan → report</p><p>$ use approved actions for active testing</p></div></Card></section>
+      <CommandCenterUpgrade/>
+      <section className="two"><ProgramEarningsPanel live={live}/><Card title="LIVE TERMINAL"><div className="terminal"><p>$ hunter brain ready</p><p>$ paste target page → extract scope → create target → scan → report</p><p>$ use approved actions for active testing</p><p>$ sandbox runner intentionally not included</p></div></Card></section>
     </main>
   </div>;
 }

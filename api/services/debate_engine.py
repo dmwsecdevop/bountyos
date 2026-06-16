@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, Any, Dict
 
-from sqlmodel import SQLModel, Field, Session, select
+from sqlmodel import SQLModel, Field, select
 
 from api.database import session_ctx
 from api.models import Finding, ScanEvent
@@ -77,7 +77,7 @@ VERDICT_PROMPT = (
 
 class DebateRecord(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
-    finding_id: str
+    finding_id: str = Field(foreign_key="finding.id")
     scan_id: str
     verdict: str
     original_severity: Optional[str] = None

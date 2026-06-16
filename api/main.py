@@ -11,8 +11,8 @@ from contextlib import asynccontextmanager
 import os
 
 from api.database import init_db
-# ensure DebateRecord model is registered before init_db runs
-from api.services import debate_engine  # type: ignore
+# ensure SQLModel service tables are registered before init_db runs
+from api.services import agent_revisions, agent_tasks, browser_agent, debate_engine, knowledge_graph, mobile_apk, takeover_monitor  # type: ignore
 
 from api.routes.targets      import router as targets_router
 from api.routes.scans        import router as scans_router
@@ -31,6 +31,15 @@ from api.routes.hunter       import router as hunter_router
 from api.routes.quality      import router as quality_router
 from api.routes.runners      import router as runners_router, ws_router as runners_ws_router
 from api.routes.debate       import router as debate_router
+from api.routes.skills       import router as skills_router
+from api.routes.tasks        import router as tasks_router
+from api.routes.knowledge    import router as knowledge_router
+from api.routes.takeovers    import router as takeovers_router
+from api.routes.browser      import router as browser_router
+from api.routes.mobile       import router as mobile_router
+from api.routes.reports      import router as reports_router
+from api.routes.evals        import router as evals_router
+from api.routes.exploit      import router as exploit_router
 
 
 @asynccontextmanager
@@ -52,7 +61,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,6 +84,15 @@ app.include_router(hunter_router, prefix="/api/v1")
 app.include_router(quality_router, prefix="/api/v1")
 app.include_router(runners_router, prefix="/api/v1")
 app.include_router(debate_router, prefix="/api/v1")
+app.include_router(skills_router, prefix="/api/v1")
+app.include_router(tasks_router, prefix="/api/v1")
+app.include_router(knowledge_router, prefix="/api/v1")
+app.include_router(takeovers_router, prefix="/api/v1")
+app.include_router(browser_router, prefix="/api/v1")
+app.include_router(mobile_router, prefix="/api/v1")
+app.include_router(reports_router, prefix="/api/v1")
+app.include_router(evals_router, prefix="/api/v1")
+app.include_router(exploit_router, prefix="/api/v1")
 app.include_router(ws_router)
 app.include_router(live_ws_router)
 app.include_router(runners_ws_router)
@@ -85,8 +103,12 @@ def health():
     from api.tools.discovery import ALL_TOOLS, refresh_remote_tools
     from api.runners.manager import runner_manager
     refresh_remote_tools()
-    from api.ai import provider_status
+    from api.services.ai_router import provider_status
+    from api.database import database_health
     from api.services.debate_engine import debate_enabled, debate_model
+    from api.services.skill_registry import skill_count
+    from api.services.takeover_monitor import takeover_enabled, verify_tls
+    from api.services.browser_agent import browser_enabled
     return {
         "status": "ok",
         "version": "5.2.0-gemini-runner",
@@ -95,7 +117,16 @@ def health():
         "ai": provider_status(),
         "program_radar": "enabled",
         "live_data": "enabled",
+        "database": database_health(),
+        "skill_registry": {"enabled": True, "skill_count": skill_count()},
+        "agent_tasks": {"enabled": True},
+        "knowledge_graph": {"enabled": True},
+        "takeover_monitor": {"enabled": takeover_enabled(), "verify_tls": verify_tls()},
         "debate_engine": {"enabled": debate_enabled(), "model": debate_model()},
+        "browser_agent": {"enabled": browser_enabled(), "mode": "metadata-only"},
+        "mobile_apk": {"enabled": True, "mode": "metadata-only"},
+        "report_builder": {"enabled": True},
+        "evals": {"enabled": True},
     }
 
 
