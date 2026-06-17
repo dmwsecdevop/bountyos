@@ -12,6 +12,7 @@ import os
 import json
 import asyncio
 import base64
+import logging
 from typing import Optional, List
 import httpx
 
@@ -23,6 +24,7 @@ from api.database import get_session
 from api.models import Finding, Scan, Target
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -266,8 +268,9 @@ class MSFRPCClient:
             await self.login()
         try:
             return await self._post([method, self.token, *args])
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Metasploit RPC call failed for method '%s'", method)
+            return {"error": "Metasploit RPC request failed"}
 
     async def module_search(self, query: str) -> List[dict]:
         data = await self.call("module.search", query)
