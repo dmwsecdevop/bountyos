@@ -20,7 +20,6 @@ def main() -> None:
     # Replacement map: regex -> replacement.
     # Use whole-word anchors or explicit line matches to avoid accidental changes.
     replacements = {
-        r"\bANTHROPIC\b": "GEMINI",
         # Update example model names in simple export lines. This will only change the first matching block.
         r'export BOUNTYOS_MAIN_PROVIDER="gemini"\s*\nexport BOUNTYOS_MAIN_MODEL="[^"]+"\s*\nexport BOUNTYOS_EXPLOIT_MODEL="[^"]+"': (
             'export BOUNTYOS_MAIN_PROVIDER="gemini"\nexport BOUNTYOS_MAIN_MODEL="gemini-2.5-flash"\nexport BOUNTYOS_EXPLOIT_MODEL="gemini-2.5-pro"'

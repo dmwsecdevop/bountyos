@@ -2,7 +2,7 @@
 
 This module defines the DebateRecord SQLModel and the DebateSession service which
 coordinates Skeptic, Proponent, and Verdict steps using the existing AI provider
-abstraction (api.ai.get_ai_client). It avoids any Anthropic/Claude dependencies.
+abstraction (api.ai.get_ai_client). It uses the Gemini/Vertex-compatible provider abstraction only.
 """
 from __future__ import annotations
 
