@@ -507,13 +507,13 @@ class BountyAccountHub:
         for account in accounts:
             try:
                 results.append(self.sync_account(session, account.id, max_items=max_items))
-            except Exception as exc:
+            except Exception:
                 results.append({
                     "account_id": account.id,
                     "platform": account.platform,
                     "status": "error",
-                    "errors": [str(exc)],
-                    "error_details": [{"code": "internal_error", "message": str(exc), "retryable": False}],
+                    "errors": ["Internal error during account sync."],
+                    "error_details": [{"code": "internal_error", "message": "Internal error during account sync.", "retryable": False}],
                 })
         return {
             "accounts_checked": len(accounts),
