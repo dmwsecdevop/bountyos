@@ -1,0 +1,4 @@
+.git/
+dashboard/node_modules/
+dashboard/dist/
+static/assets/

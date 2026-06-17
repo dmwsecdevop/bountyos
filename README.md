@@ -77,6 +77,10 @@ go install github.com/ffuf/ffuf/v2@latest
 apt install sqlmap -y
 ```
 
+### Cloud Run and Cloud SQL deployment
+
+For production Cloud Run deployment with Cloud SQL Postgres, see [`CLOUD_RUN_DEPLOYMENT.md`](CLOUD_RUN_DEPLOYMENT.md). BountyOS v6 uses Gemini/Vertex only and should be deployed with `BOUNTYOS_VERSION=6.0.0`.
+
 ### 3. Configure Gemini or Vertex AI
 
 For Gemini Developer API:

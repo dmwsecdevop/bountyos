@@ -1,0 +1,58 @@
+name: Security Audits
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: '35 2 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+      - name: Audit dashboard dependencies
+        working-directory: dashboard
+        run: npm audit --audit-level=high
+
+  python-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.txt
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v docker >/dev/null 2>&1; then
+            docker run --rm -v "$PWD:/repo" ghcr.io/trufflesecurity/trufflehog:latest filesystem /repo --fail --exclude-paths=/repo/.trufflehog-exclude.txt
+          else
+            ! rg -n --hidden -S '(?i)(api[_-]?key|secret|token|password|authorization|bearer)\s*[:=]\s*["'"']?[A-Za-z0-9_./+=-]{20,}' . \
+              -g '!dashboard/node_modules/**' -g '!dashboard/dist/**' -g '!static/assets/**' -g '!.git/**'
+          fi

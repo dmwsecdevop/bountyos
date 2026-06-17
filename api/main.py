@@ -3,12 +3,13 @@ BountyOS - Main FastAPI application
 Run: uvicorn api.main:app --reload --port 8000
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import os
+import posixpath
 
 from api.database import init_db
 # ensure SQLModel service tables are registered before init_db runs
@@ -55,7 +56,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="BountyOS",
     description="Autonomous bug bounty — passive & aggressive modes",
-    version="5.2.0-gemini-runner",
+    version=os.getenv("BOUNTYOS_VERSION", "6.0.0"),
     lifespan=lifespan,
 )
 
@@ -111,7 +112,7 @@ def health():
     from api.services.browser_agent import browser_enabled
     return {
         "status": "ok",
-        "version": "5.2.0-gemini-runner",
+        "version": os.getenv("BOUNTYOS_VERSION", "6.0.0"),
         "tools_available": len(ALL_TOOLS),
         "agent": "architect_moe",
         "ai": provider_status(),
@@ -167,6 +168,8 @@ if os.path.isdir(_static):
     @app.get('/{full_path:path}', include_in_schema=False)
     def serve_spa(full_path: str):
         if full_path.startswith(('api/', 'ws/')):
-            from fastapi import HTTPException
+            raise HTTPException(404)
+        normalized = posixpath.normpath("/" + full_path).lstrip("/")
+        if ".." in normalized.split("/") or full_path.startswith(("/", "\\")) or "\\" in full_path:
             raise HTTPException(404)
         return FileResponse(os.path.join(_static, 'index.html'))
