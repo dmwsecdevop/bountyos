@@ -8,6 +8,7 @@ Two endpoints:
 
 import os
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ from api.agents.coordinator import run_ai_coordinator
 from api.agents.live_data_agent import live_data_agent
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 _client = get_ai_client()
 MODEL   = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
@@ -373,8 +375,9 @@ def analyze_with_mindset(scan_id: str, session: Session = Depends(get_session)):
             }],
         )
         analysis = "".join(b.text for b in response.content if b.type == "text")
-    except Exception as e:
-        analysis = f"Analysis error: {e}"
+    except Exception:
+        logger.exception("AI mindset analysis failed for scan_id=%s", scan_id)
+        analysis = "Analysis temporarily unavailable. Please try again later."
 
     return {
         "scan_id":     scan_id,
