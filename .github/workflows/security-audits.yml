@@ -39,7 +39,7 @@ jobs:
         run: python -m pip install --upgrade pip pip-audit
       - name: Audit Python dependencies
         run: pip-audit -r requirements.txt
-  
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:
@@ -52,10 +52,7 @@ jobs:
           set -euo pipefail
           if command -v docker >/dev/null 2>&1; then
             docker run --rm -v "$PWD:/repo" ghcr.io/trufflesecurity/trufflehog:latest filesystem /repo --fail --exclude-paths=/repo/.trufflehog-exclude.txt
-               else
-        cat > /tmp/secret_regex <<'REG'
-(?i)(api[_-]?key|secret|token|password|authorization|bearer)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{20,}
-REG
-        rg -n --hidden -S --regexp-file=/tmp/secret_regex . \
-          -g '!dashboard/node_modules/**' -g '!dashboard/dist/**' -g '!static/assets/**' -g '!.git/**'
-      fi
+          else
+            ! rg -n --hidden -S '(?i)(api[_-]?key|secret|token|password|authorization|bearer)\s*[:=]\s*["'"']?[A-Za-z0-9_./+=-]{20,}' . \
+              -g '!dashboard/node_modules/**' -g '!dashboard/dist/**' -g '!static/assets/**' -g '!.git/**'
+          fi

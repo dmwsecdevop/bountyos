@@ -18,7 +18,7 @@ Replace these placeholders before deployment:
 
 ## Gemini or Vertex AI only
 
-BountyOS v6 uses Gemini/Vertex routing only. Do not configure Claude, Anthropic, or Anthropic SDK credentials.
+BountyOS v6 uses Gemini/Vertex routing only. Do not configure unsupported non-Gemini provider credentials.
 
 For Gemini Developer API, configure:
 

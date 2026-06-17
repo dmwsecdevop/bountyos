@@ -1,177 +1,115 @@
-# BountyOS — Autonomous Bug Bounty Platform
+# BountyOS v6.0.0 — Self-Hosted Bug Bounty Command Center
 
-Full-stack, AI-powered bug bounty automation framework.
-FastAPI backend + React dashboard + Gemini/Vertex-powered agents.
+BountyOS v6 is a self-hosted, AI-assisted bug bounty operations platform. It combines a FastAPI backend, a static React v6 Command Center UI, authenticated runner bridge, WebSocket live updates, targets/scans/findings, Hunter Brain, knowledge graph, program radar, report agents, and quality agents.
 
----
+The recommended deployment for v6 is a VPS-first Docker Compose stack with Postgres and Redis. Gemini API is the default AI mode, with optional Vertex AI support for operators who already use Google Cloud.
 
-## Architecture
+## What BountyOS v6 includes
 
-```
-bountyos/
-├── api/
-│   ├── main.py              # FastAPI app (serves dashboard + API)
-│   ├── database.py          # SQLModel engine (SQLite → Postgres-ready)
-│   ├── models.py            # ORM models: Target, Scan, Finding, Approval
-│   ├── agents/
-│   │   ├── coordinator.py   # AI Coordinator (campaign-level reasoning)
-│   │   └── exploit_agent.py # Exploit Agent (technique-level execution)
-│   ├── tools/
-│   │   └── __init__.py      # Tool registry: subfinder, nmap, nuclei, sqlmap, ffuf...
-│   └── routes/
-│       ├── targets.py       # Target CRUD
-│       ├── scans.py         # Scan orchestration + background runner
-│       ├── findings.py      # Findings + Approvals
-│       ├── ai.py            # AI chat + manual analysis trigger
-│       └── ws.py            # WebSocket live event stream
-├── dashboard/               # React + Vite source
-├── static/                  # Built React app (served by FastAPI)
-└── requirements.txt
-```
+- FastAPI API and static React dashboard served from one app container
+- Gemini/Gemini API model routing and optional Vertex AI mode
+- Authenticated outbound runner bridge for VM/Docker security tools
+- WebSocket routes for live scan and runner events
+- Targets, scans, findings, approvals, reports, and quality review agents
+- Hunter Brain UI, knowledge graph, and program radar workflows
+- Postgres-backed self-host deployment with Redis cache service
 
----
-
-## Agent Pipeline
-
-```
-Target defined
-    ↓
-Recon Phase      subfinder → nmap → whatweb → httpx
-    ↓
-VulnScan Phase   headers → nuclei → ffuf → sqlmap
-    ↓
-AI Coordinator   Reads all findings, reasons over attack surface,
-                 builds exploit chain step by step
-    ↓ (for each step)
-    ├─ Safe step      → Exploit Agent executes immediately
-    └─ Destructive    → Approval gate → operator approves/rejects
-                                ↓ (if approved)
-                        Exploit Agent: generate payloads → execute → validate
-                        Up to 3 retry attempts with variation
-                        Confirmed findings → persisted to DB with CWE + remediation
-    ↓
-Finished — findings table + AI summary available
-```
-
----
-
-## Setup
-
-### 1. Install Python dependencies
+## Quick self-host install
 
 ```bash
+git clone https://github.com/dmwsecdevop/bountyos.git
+cd bountyos
+cp .env.example .env
+nano .env
+./install.sh
+```
+
+Then open:
+
+```text
+http://localhost:8080
+```
+
+For production VPS setup, Nginx, TLS, runner setup, updates, and backup/restore, see [`SELF_HOST_DEPLOYMENT.md`](SELF_HOST_DEPLOYMENT.md).
+
+## Required Gemini API configuration
+
+Set these values in `.env` for the default self-host mode:
+
+```bash
+BOUNTYOS_VERSION=6.0.0
+BOUNTYOS_EXECUTION_MODE=hybrid
+BOUNTYOS_AI_PROVIDER=gemini
+BOUNTYOS_MAIN_PROVIDER=gemini
+GOOGLE_GENAI_USE_VERTEXAI=false
+GEMINI_API_KEY=PASTE_GEMINI_API_KEY
+BOUNTYOS_LIGHT_MODEL=gemini-2.5-flash-lite
+BOUNTYOS_RECON_MODEL=gemini-2.5-flash
+BOUNTYOS_MAIN_MODEL=gemini-2.5-pro
+BOUNTYOS_AGGRESSIVE_MODEL=gemini-2.5-pro
+BOUNTYOS_EXPLOIT_MODEL=gemini-2.5-pro
+```
+
+## Optional Vertex AI mode
+
+Vertex AI remains available for operators who already run on Google Cloud. Set `GOOGLE_GENAI_USE_VERTEXAI=true`, configure `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`, and keep the Gemini model names above.
+
+Cloud Run deployment is optional/legacy for this repo. If you still need it, see [`CLOUD_RUN_DEPLOYMENT.md`](CLOUD_RUN_DEPLOYMENT.md).
+
+## Docker Compose services
+
+The self-host stack includes:
+
+- `bountyos` app on port `8080`
+- `postgres:16` with persistent `postgres_data`
+- `redis:7` with persistent `redis_data`
+- `bountyos_data` for app-local runtime data
+
+Common commands:
+
+```bash
+docker compose ps
+docker compose logs -f bountyos
+docker compose up -d
+docker compose down
+```
+
+## Runner bridge
+
+Heavy recon and active validation tools should run outside the app container. Create a runner in the BountyOS UI, copy the one-time runner token, then start a runner host/container with:
+
+```bash
+export SERVER=https://YOUR_DOMAIN_HERE
+export RUNNER_ID=PASTE_RUNNER_ID
+export RUNNER_TOKEN=PASTE_RUNNER_TOKEN
+./scripts/start-runner-docker.sh
+```
+
+The runner connects outbound over the authenticated WebSocket bridge, advertises allowed tools, and executes safe argv jobs without opening inbound ports.
+
+## Local development
+
+Backend:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 2. Install external tools (Kali / Parrot recommended)
-
-```bash
-# Recon
-apt install nmap whatweb -y
-go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install github.com/projectdiscovery/httpx/cmd/httpx@latest
-
-# VulnScan
-go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-go install github.com/ffuf/ffuf/v2@latest
-apt install sqlmap -y
-```
-
-### Cloud Run and Cloud SQL deployment
-
-For production Cloud Run deployment with Cloud SQL Postgres, see [`CLOUD_RUN_DEPLOYMENT.md`](CLOUD_RUN_DEPLOYMENT.md). BountyOS v6 uses Gemini/Vertex only and should be deployed with `BOUNTYOS_VERSION=6.0.0`.
-
-### 3. Configure Gemini or Vertex AI
-
-For Gemini Developer API:
-
-```bash
-export BOUNTYOS_MAIN_PROVIDER=gemini
-export BOUNTYOS_MAIN_MODEL=gemini-2.5-flash
-export GEMINI_API_KEY=...
-```
-
-For Vertex AI:
-
-```bash
-# For Gemini Developer API
-export GEMINI_API_KEY=your_gemini_api_key_here
-
-# Or for Vertex AI (recommended):
-export GOOGLE_API_KEY=...
-export GOOGLE_CLOUD_PROJECT=your-project-id
-export GOOGLE_CLOUD_LOCATION=global
-export GOOGLE_GENAI_USE_VERTEXAI=true
-```
-
-### 4. Run
-
-```bash
 uvicorn api.main:app --reload --port 8000
 ```
 
-Dashboard: http://localhost:8000  
-API docs:  http://localhost:8000/docs
-
----
-
-## Collaborative Debate Engine
-
-BountyOS includes an optional Collaborative Debate Engine that performs an internal
-multi-agent review (Skeptic, Proponent, Verdict) on high/critical findings before
-they are finalized. It is Gemini/Vertex compatible and disabled by default.
-
-Highlights:
-- Reviews only high/critical findings by default
-- SkepticAgent challenges evidence
-- ProponentAgent defends using only existing evidence
-- VerdictAgent returns one of: CONFIRMED, DOWNGRADED, REJECTED, NEEDS_EVIDENCE
-- Safety: the debate engine treats evidence as untrusted and never executes tools
-
-Environment variables:
+Dashboard source:
 
 ```bash
-export BOUNTYOS_DEBATE_ENABLED=false
-export BOUNTYOS_DEBATE_MODEL=gemini-2.5-flash
-export BOUNTYOS_DEBATE_TIMEOUT_SECONDS=60
-export BOUNTYOS_DEBATE_MAX_TOKENS=1500
+cd dashboard
+npm install
+npm run build
+cp -R dist/* ../static/
 ```
 
-API examples:
+## Security notes
 
-```bash
-curl -X POST http://localhost:8000/api/v1/debate/findings/FINDING_ID/run
-curl -X POST http://localhost:8000/api/v1/debate/scans/SCAN_ID/run
-curl http://localhost:8000/api/v1/debate/records/FINDING_ID
-```
-
----
-
-## Model routing
-
-Environment variables:
-
-```bash
-export BOUNTYOS_LOCAL_MODEL="heuristic-local"
-export BOUNTYOS_LIGHT_MODEL="heuristic-light"
-export BOUNTYOS_MAIN_PROVIDER="vertex"
-export BOUNTYOS_MAIN_MODEL="gemini-2.5-flash"
-export BOUNTYOS_EXPLOIT_MODEL="gemini-2.5-pro"
-```
-
-Routing:
-
-- `local_recon_expert` handles recon/status/dashboard commands.
-- `light_triage_expert` handles simple chat and command parsing.
-- `bug_reasoning_expert` handles post-scan bug/finding analysis.
-- `exploit_validation_expert` handles approved active validation reasoning.
-
-This upgrade does not add a new stricter scope validator or replace existing tool behavior.
-
----
-
-## Bounty Program Radar
-
-This build adds a passive Program Radar for online/public bug bounty program discovery.
-
-... (rest of README unchanged)
+- Do not commit `.env`, API keys, database passwords, runner tokens, logs, SQLite databases, or backups.
+- Active/destructive tooling must remain approval-gated.
+- Keep `BOUNTYOS_VERSION=6.0.0` for this release line.
+- Configure `ALLOWED_ORIGINS` for your production domain.
