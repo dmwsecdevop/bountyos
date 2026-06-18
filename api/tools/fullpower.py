@@ -35,14 +35,22 @@ def _log(scan_id: str, tool: str, msg: str, level: str = "info", phase: str = "e
         s.commit()
 
 
-async def _stream(cmd: str, scan_id: str, tool: str, timeout: int,
+async def _stream(cmd: str | list[str], scan_id: str, tool: str, timeout: int,
                   finding_patterns: list, phase: str = "exploit") -> AsyncIterator[dict]:
-    """Safe streaming subprocess with validator gate."""
-    validate_or_raise(cmd)  # SAFETY CHECK — raises if blocked
+    """Safe streaming subprocess with validator gate and argv execution."""
+    argv = [str(x) for x in cmd] if isinstance(cmd, list) else shlex.split(cmd)
+    if not argv:
+        raise ValueError("empty command")
+    binary_name = os.path.basename(argv[0])
+    tool_aliases = {"metasploit": {"msfconsole"}}
+    allowed_binaries = {tool, *tool_aliases.get(tool, set())}
+    if binary_name not in allowed_binaries:
+        raise ValueError("tool command does not match requested tool")
+    validate_or_raise(shlex.join(argv))  # SAFETY CHECK — raises if blocked
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
