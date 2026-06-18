@@ -116,6 +116,21 @@ def _local_heuristic_answer(user_text: str, ctx: str, route: dict) -> str:
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
+@router.get("/models")
+def get_model_config():
+    """Return the non-secret Gemini/Vertex model routing configuration."""
+    vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "false").strip().lower()
+    return {
+        "provider": os.getenv("BOUNTYOS_AI_PROVIDER", "gemini"),
+        "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"),
+        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"),
+        "recon_model": os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash"),
+        "aggressive_model": os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", "gemini-2.5-pro"),
+        "exploit_model": os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"),
+        "vertex": vertex in {"1", "true", "yes", "on"},
+    }
+
+
 @router.post("/chat")
 def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
     """
