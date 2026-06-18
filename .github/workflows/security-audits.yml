@@ -8,9 +8,6 @@ on:
   schedule:
     - cron: '35 2 * * 1'
 
-permissions:
-  contents: read
-
 jobs:
   npm-audit:
     runs-on: ubuntu-latest
@@ -53,6 +50,6 @@ jobs:
           if command -v docker >/dev/null 2>&1; then
             docker run --rm -v "$PWD:/repo" ghcr.io/trufflesecurity/trufflehog:latest filesystem /repo --fail --exclude-paths=/repo/.trufflehog-exclude.txt
           else
-             ! rg -n --hidden -S "(?i)(api[-]?key|secret|token|password|authorization|bearer)\s*[:=]\s*["']?[A-Za-z0-9./+=-]{20,}" . \
+            ! rg -n --hidden -S '(?i)(api[_-]?key|secret|token|password|authorization|bearer)\s*[:=]\s*["'"']?[A-Za-z0-9_./+=-]{20,}' . \
               -g '!dashboard/node_modules/**' -g '!dashboard/dist/**' -g '!static/assets/**' -g '!.git/**'
           fi
