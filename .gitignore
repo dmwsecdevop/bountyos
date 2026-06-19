@@ -68,3 +68,9 @@ secrets.json
 # Windows
 Thumbs.db
 
+
+.runner.env
+
+.runner.pid
+
+runner.log
