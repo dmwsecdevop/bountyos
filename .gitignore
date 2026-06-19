@@ -15,7 +15,6 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
 yarn.lock
 
 # Python
@@ -26,6 +25,7 @@ venv/
 env/
 .env
 .env.*
+!.env.example
 
 # Java
 *.class
@@ -68,3 +68,9 @@ secrets.json
 # Windows
 Thumbs.db
 
+
+.runner.env
+
+.runner.pid
+
+runner.log

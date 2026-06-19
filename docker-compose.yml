@@ -1,0 +1,67 @@
+services:
+  bountyos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bountyos-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      BOUNTYOS_VERSION: ${BOUNTYOS_VERSION:-6.0.0}
+      BOUNTYOS_EXECUTION_MODE: ${BOUNTYOS_EXECUTION_MODE:-hybrid}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://bountyos:bountyos_change_me@postgres:5432/bountyos}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - bountyos_data:/app/data
+    networks:
+      - bountyos
+
+  postgres:
+    image: postgres:16
+    container_name: bountyos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bountyos}
+      POSTGRES_USER: ${POSTGRES_USER:-bountyos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bountyos_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bountyos} -d ${POSTGRES_DB:-bountyos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bountyos
+
+  redis:
+    image: redis:7
+    container_name: bountyos-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bountyos
+
+volumes:
+  postgres_data:
+  redis_data:
+  bountyos_data:
+
+networks:
+  bountyos:
+    driver: bridge

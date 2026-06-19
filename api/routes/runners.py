@@ -15,6 +15,7 @@ from api.realtime import publish_sync
 from api.runners.manager import hash_runner_token, new_runner_token, runner_manager
 from api.tools.catalogue import TOOL_CATALOGUE
 from api.tools.executor import get_execution_mode, set_execution_mode
+from api.validation.evidence import redact
 
 router = APIRouter(prefix="/runners", tags=["runners"])
 ws_router = APIRouter(tags=["runner-websocket"])
@@ -254,7 +255,7 @@ async def runner_connect(websocket: WebSocket, runner_id: str):
     except WebSocketDisconnect:
         await runner_manager.disconnect(runner_id, "WebSocket disconnected")
     except Exception as exc:
-        await runner_manager.disconnect(runner_id, str(exc))
+        await runner_manager.disconnect(runner_id, redact(str(exc)) or "runner websocket error")
         try:
             await websocket.close(code=1011)
         except Exception:
