@@ -67,11 +67,11 @@ def model_route(q: str = "", action: str = "", has_scan_context: bool = False):
 
 
 @router.post("/command")
-def command(req: AgentCommandRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+async def command(req: AgentCommandRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     if not req.transcript.strip():
         raise HTTPException(400, "Transcript is empty")
     try:
-        return agent.handle(
+        return await agent.handle(
             session=session,
             background_tasks=background_tasks,
             transcript=req.transcript,
@@ -84,6 +84,6 @@ def command(req: AgentCommandRequest, background_tasks: BackgroundTasks, session
 
 
 @router.post("/voice-command")
-def voice_command(req: AgentCommandRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+async def voice_command(req: AgentCommandRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     req.source = "voice"
-    return command(req, background_tasks, session)
+    return await command(req, background_tasks, session)

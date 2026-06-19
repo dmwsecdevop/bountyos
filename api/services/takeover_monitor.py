@@ -32,5 +32,5 @@ def scan_target_metadata_only(target_id: str):
         roots=[target.domain]+[x.strip() for x in (target.scope or "").replace(',', '\n').splitlines() if x.strip()]
         root=normalize_host(target.domain)
         if not scope_guard_domain(root, roots): return {"enabled":True,"blocked":True,"reason":"target outside allowed roots"}
-        cand=TakeoverCandidate(domain=root,target_id=target_id,status="candidate",evidence="Metadata-only takeover monitor placeholder; no claim or destructive action performed.")
+        cand=TakeoverCandidate(domain=root,target_id=target_id,status="candidate",evidence="Metadata-only takeover monitor candidate; no claim or destructive action performed.")
         s.add(cand); s.commit(); s.refresh(cand); return cand.model_dump()

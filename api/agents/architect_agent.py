@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -22,6 +23,9 @@ from api.models import Target, Scan, ScanMode, ScanStatus, ScanPhase, Finding, A
 from api.realtime import publish_sync, set_agent_state
 from api.agents.model_router import router as model_router
 from api.agents.live_data_agent import live_data_agent
+from api.integrations.gemini_client import GeminiClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -107,6 +111,12 @@ class ArchitectAgent:
             return ArchitectDecision("start_passive_scan", False, 0.9, target_id, scan_id, "Passive recon requested.")
         if any(k in t for k in ["aggressive", "nuclei", "sqlmap", "ffuf", "active scan", "vulnerability scan"]):
             return ArchitectDecision("start_aggressive_scan", True, 0.86, target_id, scan_id, "Active/aggressive tooling requested.")
+        if any(k in t for k in ["summarize scan", "summary", "summarize this scan", "scan summary", "recon summary"]):
+            return ArchitectDecision("summarize_scan", False, 0.86, target_id, scan_id, "Gemini scan summary requested.")
+        if any(k in t for k in ["exploit reasoning", "exploit plan", "poc", "proof of concept", "validate exploit"]):
+            return ArchitectDecision("exploit_reasoning", False, 0.84, target_id, scan_id, "Gemini exploit reasoning requested.")
+        if any(k in t for k in ["analyze findings", "analyze finding", "finding analysis", "bug reasoning"]):
+            return ArchitectDecision("analyze_findings", False, 0.84, target_id, scan_id, "Gemini findings analysis requested.")
         if any(k in t for k in ["analyze", "bug brain", "mindset", "find bugs", "think like hacker", "finding bugs"]):
             return ArchitectDecision("run_ai_analysis", False, 0.82, target_id, scan_id, "Post-scan bug reasoning requested.")
         if any(k in t for k in ["show findings", "findings", "bugs found", "vulnerabilities found"]):
@@ -138,7 +148,7 @@ class ArchitectAgent:
         publish_sync("agent.think", thought)
         return thought
 
-    def act(self, session: Session, background_tasks: Any, decision: ArchitectDecision, approve: bool = False, transcript: str = "") -> Dict[str, Any]:
+    async def act(self, session: Session, background_tasks: Any, decision: ArchitectDecision, approve: bool = False, transcript: str = "", obs: Dict[str, Any] | None = None) -> Dict[str, Any]:
         action = decision.action
         result: Dict[str, Any] = {"action": action, "ok": True}
 
@@ -330,16 +340,19 @@ class ArchitectAgent:
             result["message"] = live_result.answer
 
         elif action == "general_chat":
-            # Lightweight chat fallback for the command center. Full context-heavy chat remains /api/v1/ai/chat.
-            route = model_router.route(transcript, "chat", has_scan_context=bool(decision.scan_id))
-            lower = transcript.lower()
-            if any(k in lower for k in ["what can you do", "help", "capabilities"]):
-                answer = "I can answer general questions, check live data like USD rates/CVEs/crypto, run Program Radar, show targets/scans/findings, start passive recon, run AI analysis, and request approval for aggressive scans."
-            elif decision.scan_id:
-                answer = "I can use the selected scan context. Try: `show findings`, `summarize this scan`, `run AI analysis`, or ask what bug class to prioritize."
-            else:
-                answer = "I can reply as a lightweight assistant here. For deeper model answers, use the AI Chat page or configure Vertex AI or GEMINI_API_KEY/BOUNTYOS_MAIN_MODEL. For live questions like `today USD rate`, I call live-data tools."
-            result.update({"message": answer, "response": answer, "model_route": route.as_dict()})
+            gemini = GeminiClient()
+            ai = await gemini.chat(transcript, context=obs or {})
+            result.update({"provider": ai.provider, "model": ai.model, "message": ai.text, "response": ai.text, "model_route": {"provider": ai.provider, "model": ai.model, "route": ai.route}})
+
+        elif action == "summarize_scan":
+            gemini = GeminiClient()
+            ai = await gemini.summarize_scan(transcript, context=obs or {})
+            result.update({"provider": ai.provider, "model": ai.model, "message": ai.text, "response": ai.text, "model_route": {"provider": ai.provider, "model": ai.model, "route": ai.route}})
+
+        elif action in {"analyze_findings", "exploit_reasoning"}:
+            gemini = GeminiClient()
+            ai = await gemini.analyze_findings(transcript, context=obs or {})
+            result.update({"provider": ai.provider, "model": ai.model, "message": ai.text, "response": ai.text, "model_route": {"provider": ai.provider, "model": ai.model, "route": ai.route}})
 
         elif action == "show_findings":
             q = select(Finding)
@@ -357,8 +370,6 @@ class ArchitectAgent:
             result.update({"message": f"Found {len(targets)} targets.", "targets": [t.model_dump(mode="json") for t in targets[:25]]})
 
         elif action == "parse_target_page":
-            from api.ai import get_ai_client
-            ai_client = get_ai_client()
             model = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
 
             prompt = (
@@ -373,13 +384,9 @@ class ArchitectAgent:
             )
 
             try:
-                response = ai_client.messages.create(
-                    model=model,
-                    max_tokens=2048,
-                    system="You are a bug bounty reconnaissance expert. Your goal is to parse program documentation and extract actionable scope data.",
-                    messages=[{"role": "user", "content": f"{prompt}\n\nCONTENT:\n{transcript}"}],
-                )
-                text = "".join(b.text for b in response.content if b.type == "text")
+                gemini = GeminiClient()
+                ai = await gemini.summarize_scan(f"{prompt}\n\nCONTENT:\n{transcript}", context=obs or {}, model=model)
+                text = ai.text
                 result.update({
                     "message": "Target page parsed successfully.",
                     "response": text,
@@ -393,7 +400,7 @@ class ArchitectAgent:
         publish_sync("agent.act", result)
         return result
 
-    def handle(self, session: Session, background_tasks: Any, transcript: str, selected_target_id: Optional[str] = None, selected_scan_id: Optional[str] = None, approve: bool = False) -> Dict[str, Any]:
+    async def handle(self, session: Session, background_tasks: Any, transcript: str, selected_target_id: Optional[str] = None, selected_scan_id: Optional[str] = None, approve: bool = False) -> Dict[str, Any]:
         set_agent_state(status="observing", stage="observe", last_action=transcript)
         obs = self.observe(session, transcript, selected_target_id, selected_scan_id)
         set_agent_state(status="reasoning", stage="reason")
@@ -402,7 +409,13 @@ class ArchitectAgent:
         thought = self.think(transcript, decision, obs)
         set_agent_state(status="acting", stage="act", model_expert=thought["model_route"]["expert"], last_action=decision.action)
         try:
-            result = self.act(session, background_tasks, decision, approve=approve, transcript=transcript)
+            result = await self.act(session, background_tasks, decision, approve=approve, transcript=transcript, obs=obs)
+        except Exception as exc:
+            if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
+                logger.exception("Architect agent action '%s' failed", decision.action)
+                result = {"ok": False, "provider": "gemini", "error": "An internal error occurred while processing the request."}
+            else:
+                raise
         finally:
             set_agent_state(status="idle", stage="observe")
         return {
