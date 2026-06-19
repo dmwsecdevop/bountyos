@@ -1,272 +1,124 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 
 const API = '/api/v1';
+const NAV = ['Dashboard','Hunter Brain','Targets','Scans','Findings','Runners','Knowledge Graph','Reports','Settings'];
 
-async function request(path, options={}){
-  const res = await fetch(API + path, {
-    headers: {'Content-Type':'application/json', ...(options.headers||{})},
-    ...options,
-  });
+async function api(path, options={}){
+  const res = await fetch(API + path, {headers:{'Content-Type':'application/json', ...(options.headers||{})}, ...options});
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = {raw:text}; }
-  if(!res.ok) throw new Error((data && (data.detail || data.error || data.message)) || res.statusText);
+  if(!res.ok){
+    const detail = data?.detail || data?.message || data?.error || `${res.status} ${res.statusText}`;
+    const err = new Error(detail); err.status = res.status; throw err;
+  }
   return data;
 }
+const trim = (v,n=120)=>String(v||'').length>n ? String(v).slice(0,n).trim()+'…' : String(v||'');
+const when = v => v ? String(v).replace('T',' ').slice(0,19) : '—';
 
-const empty = [];
-const statusColor = (s='') => {
-  s = String(s).toLowerCase();
-  if(s.includes('done') || s.includes('complete') || s.includes('online')) return 'var(--ok)';
-  if(s.includes('run') || s.includes('pending') || s.includes('created')) return 'var(--warn)';
-  if(s.includes('fail') || s.includes('error') || s.includes('off')) return 'var(--bad)';
-  return 'var(--muted)';
-};
+function Badge({children,tone='cyan'}){ return <span className={`badge ${tone}`}>{children}</span>; }
+function Card({title, action, children, className=''}){ return <section className={`card ${className}`}><div className="card-title"><h2>{title}</h2>{action}</div>{children}</section>; }
+function Stat({label,value,tone='cyan'}){ return <div className="stat"><strong className={tone}>{value}</strong><span>{label}</span></div>; }
+function Empty({children}){ return <div className="empty">{children}</div>; }
+function Details({value}){ return value ? <details className="details"><summary>Show details</summary><pre>{JSON.stringify(value,null,2)}</pre></details> : null; }
 
-function Pill({children, tone='accent'}){
-  return <span className={`pill ${tone}`}>{children}</span>;
-}
-function Card({title, action, children, className=''}){
-  return <section className={`card ${className}`}>
-    <div className="card-head"><span>{title}</span>{action}</div>
-    {children}
-  </section>;
-}
-function Stat({label, value, tone='accent'}){
-  return <div className="stat"><b className={tone}>{value}</b><span>{label}</span></div>;
-}
-function fmtDate(s){ return s ? String(s).replace('T',' ').slice(0,19) : '—'; }
-function safeJson(x){ try { return JSON.stringify(x,null,2); } catch { return String(x); } }
-
-function useDashboardData(){
-  const [data,setData]=useState({live:null, targets:[], scans:[], findings:[], runners:null, models:null, upgrades:null});
-  const [err,setErr]=useState('');
+function useData(){
+  const [data,setData] = useState({targets:[],scans:[],findings:[],live:null,runners:null,models:null,upgrades:null});
+  const [error,setError] = useState('');
   const refresh = async()=>{
     try{
-      const [live, targets, scans, findings, runners, models, upgrades] = await Promise.all([
-        request('/live/snapshot').catch(()=>null),
-        request('/targets/').catch(()=>empty),
-        request('/scans/').catch(()=>empty),
-        request('/findings/').catch(()=>empty),
-        request('/runners/capabilities').catch(()=>null),
-        request('/ai/models').catch(()=>null),
-        request('/upgrades/').catch(()=>null),
+      const [targets,scans,findings,live,runners,models,upgrades] = await Promise.all([
+        api('/targets/').catch(()=>[]), api('/scans/').catch(()=>[]), api('/findings/').catch(()=>[]),
+        api('/live/snapshot').catch(()=>null), api('/runners/capabilities').catch(()=>null),
+        api('/ai/models').catch(()=>null), api('/upgrades/').catch(()=>null),
       ]);
-      setData({live, targets, scans, findings, runners, models, upgrades});
-      setErr('');
-    }catch(e){ setErr(e.message); }
+      setData({targets,scans,findings,live,runners,models,upgrades}); setError('');
+    }catch(e){ setError(e.message); }
   };
   useEffect(()=>{ refresh(); const id=setInterval(refresh,5000); return()=>clearInterval(id); },[]);
-  return {...data, err, refresh};
+  return {...data,error,refresh};
 }
 
-function HunterChat({targets, scans, refresh}){
-  const [text,setText]=useState('Paste a bug bounty target page or type: run passive scan');
-  const [targetId,setTargetId]=useState('');
-  const [scanId,setScanId]=useState('');
-  const [approve,setApprove]=useState(false);
-  const [busy,setBusy]=useState(false);
-  const [messages,setMessages]=useState([
-    {role:'system', text:'Hunter Brain online. Paste a target/program page, ask for recon, review findings, or trigger scans. Gemini/Vertex model routing is preferred; no legacy provider workflow required.'}
-  ]);
-  const [extracted,setExtracted]=useState(null);
-  const bottom=useRef(null);
-  useEffect(()=>bottom.current?.scrollIntoView({behavior:'smooth'}),[messages, extracted]);
-
-  const add=(role,msg,obj)=>setMessages(m=>[...m,{role,text:msg,obj,ts:new Date().toISOString()}].slice(-30));
-
-  const extract = async()=>{
-    if(!text.trim()) return;
-    setBusy(true); add('user', text);
+function HunterBrain({targets, scans, refresh}){
+  const [text,setText] = useState('');
+  const [targetId,setTargetId] = useState('');
+  const [scanId,setScanId] = useState('');
+  const [busy,setBusy] = useState(false);
+  const [notice,setNotice] = useState('Ready. Paste a scope page or ask for recon.');
+  const [messages,setMessages] = useState([{role:'system', text:'Hunter Brain ready for Gemini-powered recon workflow.'}]);
+  const [extracted,setExtracted] = useState(null);
+  const selectedTarget = targets.find(t=>t.id===targetId);
+  const add = (role, msg, details=null)=>setMessages(m=>[...m,{role,text:msg,details,ts:new Date().toISOString()}].slice(-24));
+  const run = async(label, fn)=>{ setBusy(true); setNotice(`${label}...`); try{ await fn(); } finally{ setBusy(false); await refresh?.(); } };
+  const send = ()=>run('Sending command', async()=>{
+    if(!text.trim()) return setNotice('Type a command first.');
+    add('user', text);
     try{
-      const res = await request('/ai/extract-target-page',{method:'POST',body:JSON.stringify({text})});
-      setExtracted(res);
-      add('assistant', res.summary || 'Extracted target intelligence.', res);
-    }catch(e){ add('assistant','Extraction failed: '+e.message); }
-    finally{setBusy(false); await refresh?.();}
-  };
-
-  const command = async()=>{
-    if(!text.trim()) return;
-    setBusy(true); add('user', text);
+      const res = await api('/agent/command',{method:'POST',body:JSON.stringify({transcript:text,selected_target_id:targetId||null,selected_scan_id:scanId||null,source:'dashboard'})});
+      add('assistant', res?.act?.message || res?.response || res?.message || 'Command completed.', res); setNotice('Command completed.');
+    }catch(e){ add('assistant', e.status===404?'Backend endpoint not available':`Command failed: ${e.message}`); setNotice(e.status===404?'Backend endpoint not available':e.message); }
+  });
+  const extract = ()=>run('Extracting target', async()=>{
+    if(!text.trim()) return setNotice('Paste target/scope text first.');
+    add('user', text);
     try{
-      const res = await request('/agent/command',{method:'POST',body:JSON.stringify({
-        transcript:text,
-        selected_target_id:targetId || null,
-        selected_scan_id:scanId || null,
-        approve,
-        source:'v6_command_center'
-      })});
-      add('assistant', res?.act?.message || res?.response || res?.message || 'Command executed.', res);
-    }catch(e){ add('assistant','Command failed: '+e.message); }
-    finally{setBusy(false); setApprove(false); await refresh?.();}
-  };
-
-  const createTarget = async()=>{
-    if(!extracted) return;
-    const domain = (extracted.in_scope_domains||[])[0] || extracted.primary_domain || '';
-    if(!domain){ add('assistant','No domain found to create a target.'); return; }
-    setBusy(true);
+      const res = await api('/ai/extract-target-page',{method:'POST',body:JSON.stringify({text})});
+      setExtracted(res); add('assistant', res.summary || 'Target extracted.', res); setNotice('Target extraction complete.');
+    }catch(e){ const msg=e.status===404?'Backend endpoint not available':'Extraction failed: '+e.message; add('assistant', msg); setNotice(msg); }
+  });
+  const createTarget = ()=>run('Creating target', async()=>{
+    const domain = (extracted?.in_scope_domains||[])[0] || extracted?.primary_domain || text.trim().split(/\s+/)[0];
+    if(!domain) return setNotice('No domain found. Paste a domain or extract a target first.');
     try{
-      const res = await request('/targets/',{method:'POST',body:JSON.stringify({
-        name: extracted.program_name || domain,
-        domain,
-        scope: (extracted.in_scope_domains||[]).join('\n') || domain,
-        out_of_scope: (extracted.out_of_scope||[]).join('\n'),
-        notes: extracted.rules_summary || 'Imported from Hunter Brain pasted page.'
-      })});
-      setTargetId(res.id);
-      add('assistant',`Target created: ${res.name || res.domain}`, res);
-    }catch(e){ add('assistant','Create target failed: '+e.message); }
-    finally{setBusy(false); await refresh?.();}
-  };
-
-  const startScan = async(mode='passive')=>{
-    if(!targetId){ add('assistant','Select or create a target first.'); return; }
-    setBusy(true);
+      const res = await api('/targets/',{method:'POST',body:JSON.stringify({name:extracted?.program_name||domain,domain,scope:(extracted?.in_scope_domains||[]).join('\n')||domain,out_of_scope:(extracted?.out_of_scope||[]).join('\n'),notes:extracted?.rules_summary||'Created from dashboard'})});
+      setTargetId(res.id); add('assistant',`Target created: ${res.domain}`,res); setNotice('Target created.');
+    }catch(e){ const msg=e.status===404?'Backend endpoint not available':'Create target failed: '+e.message; add('assistant', msg); setNotice(msg); }
+  });
+  const passiveScan = ()=>run('Starting passive scan', async()=>{
+    if(!targetId) return setNotice('Select or create a target first.');
     try{
-      const cfg = {execution_mode:'remote', source:'v6_command_center', profile: extracted?.recommended_profile || 'recon', skip_ai:false, skip_hunter:false};
-      const res = await request('/scans/',{method:'POST',body:JSON.stringify({target_id:targetId, mode, config:JSON.stringify(cfg)})});
-      setScanId(res.id);
-      add('assistant',`${mode} scan started: ${res.id.slice(0,8)}`, res);
-    }catch(e){ add('assistant','Start scan failed: '+e.message); }
-    finally{setBusy(false); await refresh?.();}
-  };
-
-  return <Card title="HUNTER BRAIN // AI CHAT AGENT" className="chat-card" action={<><Pill>Gemini/Vertex</Pill><Pill tone="green">Command Mode</Pill></>}>
-    <div className="select-row">
-      <select value={targetId} onChange={e=>setTargetId(e.target.value)}>
-        <option value="">Select target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name||t.domain} — {t.domain}</option>)}
-      </select>
-      <select value={scanId} onChange={e=>setScanId(e.target.value)}>
-        <option value="">Select scan</option>{scans.map(s=><option key={s.id} value={s.id}>{s.id.slice(0,8)} — {s.status}/{s.phase}</option>)}
-      </select>
-    </div>
-    <div className="chat-log">
-      {messages.map((m,i)=><div key={i} className={`msg ${m.role}`}><b>{m.role}</b><p>{m.text}</p>{m.obj&&<details><summary>details</summary><pre>{safeJson(m.obj)}</pre></details>}</div>)}
-      <div ref={bottom}/>
-    </div>
-    {extracted && <div className="extract-box">
-      <div className="extract-grid">
-        <Stat label="in-scope" value={(extracted.in_scope_domains||[]).length}/>
-        <Stat label="out-of-scope" value={(extracted.out_of_scope||[]).length} tone="warn"/>
-        <Stat label="profile" value={extracted.recommended_profile || 'recon'} tone="green"/>
-        <Stat label="confidence" value={`${Math.round((extracted.confidence||0.6)*100)}%`}/>
-      </div>
-      <div className="chips">{(extracted.technologies||[]).slice(0,12).map(x=><Pill key={x}>{x}</Pill>)}</div>
-      <div className="actions"><button onClick={createTarget}>CREATE TARGET</button><button onClick={()=>startScan('passive')}>START PASSIVE</button><button onClick={()=>startScan('aggressive')} className="danger">FULL SEND</button></div>
-    </div>}
-    <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Paste a HackerOne/Bugcrowd/Intigriti page, scope text, or command..." />
-    <div className="actions">
-      <button onClick={extract} disabled={busy}>EXTRACT TARGET PAGE</button>
-      <button onClick={command} disabled={busy} className="primary">RUN HUNTER COMMAND</button>
-      <label className="check"><input type="checkbox" checked={approve} onChange={e=>setApprove(e.target.checked)}/> approve active action</label>
-    </div>
+      const config = JSON.stringify({execution_mode:'hybrid',source:'v6_dashboard',profile:'passive'});
+      const res = await api('/scans/',{method:'POST',body:JSON.stringify({target_id:targetId,mode:'passive',config})});
+      setScanId(res.id); add('assistant',`Passive scan started: ${res.id.slice(0,8)}`,res); setNotice('Passive scan started.');
+    }catch(e){ const msg=e.status===404?'Backend endpoint not available':'Start scan failed: '+e.message; add('assistant', msg); setNotice(msg); }
+  });
+  return <Card title="Hunter Brain" className="hunter" action={<Badge tone={busy?'amber':'green'}>{busy?'Working':'Ready'}</Badge>}>
+    <div className="notice">{notice}</div>
+    <div className="context-row"><select value={targetId} onChange={e=>setTargetId(e.target.value)}><option value="">Select target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name||t.domain}</option>)}</select><select value={scanId} onChange={e=>setScanId(e.target.value)}><option value="">Select scan</option>{scans.map(s=><option key={s.id} value={s.id}>{s.id.slice(0,8)} · {s.status}</option>)}</select></div>
+    {selectedTarget&&<div className="selected-target"><b>{selectedTarget.domain}</b><span>{trim(selectedTarget.scope,160)}</span></div>}
+    <div className="chat-window">{messages.map((m,i)=><div key={i} className={`chat-msg ${m.role}`}><b>{m.role}</b><p>{m.text}</p><Details value={m.details}/></div>)}</div>
+    <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Paste a target page, ask for recon, or review findings..." />
+    <div className="button-row"><button className="primary" onClick={send} disabled={busy}>Send</button><button onClick={extract} disabled={busy}>Extract Target</button><button onClick={passiveScan} disabled={busy}>Run Passive Scan</button><button onClick={createTarget} disabled={busy}>Create Target</button></div>
   </Card>;
 }
 
-function RunnerPanel({runners, models}){
-  const online = runners?.online || [];
-  const r = online[0];
-  return <Card title="RUNNERS + AI MODELS" action={<Pill tone={online.length?'green':'red'}>{online.length?'ONLINE':'OFFLINE'}</Pill>}>
-    <div className="runner-box">
-      <Stat label="online runners" value={online.length} tone={online.length?'green':'bad'}/>
-      <Stat label="tools" value={r?.tool_count || Object.keys(r?.tools||{}).length || 0}/>
-      <Stat label="mode" value={runners?.current_mode || 'hybrid'}/>
-      <Stat label="AI" value={models?.provider || 'vertex'} tone="green"/>
-    </div>
-    {r && <div className="kv"><span>Name</span><b>{r.name}</b><span>Host</span><b>{r.hostname}</b><span>Seen</span><b>{fmtDate(r.last_seen_at)}</b></div>}
-    <div className="chips">{Object.keys(r?.tools||{}).slice(0,35).map(t=><Pill key={t}>{t}</Pill>)}</div>
-    <pre className="mini-pre">{safeJson(models || {provider:'vertex', main_model:'gemini configurable by env'})}</pre>
-  </Card>;
+function Activity({live}){
+  const events = [...(live?.live_events||[]), ...(live?.recent_scan_events||[]).map(e=>({type:e.level,message:e.message,created_at:e.created_at}))].slice(-8).reverse();
+  return <Card title="Recent Activity" action={<Badge>{events.length} latest</Badge>}><div className="activity-list">{events.map((e,i)=><div className="activity" key={i}><span>{when(e.created_at)}</span><b>{e.type||'event'}</b><p>{trim(e.message||e.payload?.message||e.payload||e,150)}</p></div>)}{!events.length&&<Empty>No live activity yet.</Empty>}</div></Card>;
 }
+function RunnerCard({runners,onRefresh}){ const online=runners?.online||[]; const first=online[0]; return <Card title="Runner Status" action={<button className="mini" onClick={onRefresh}>Refresh Runner</button>}><div className="status-line"><span className={`dot ${online.length?'on':'off'}`}/><div><b>{online.length?'Runner online':'No runner online'}</b><p>{first?.name||'Start scripts/start-local-runner.sh'}</p></div></div><div className="mini-grid"><Stat label="online" value={online.length} tone={online.length?'green':'red'}/><Stat label="mode" value={runners?.current_mode||'hybrid'}/><Stat label="tools" value={first?.tool_count||Object.keys(first?.tools||{}).length||0}/></div></Card>; }
+function ModelCard({models}){ return <Card title="AI Model"><div className="model-lines"><p><span>Provider</span><b>{models?.provider||'gemini'}</b></p><p><span>Main</span><b>{models?.main_model||'gemini-2.5-pro'}</b></p><p><span>Recon</span><b>{models?.recon_model||'gemini-2.5-flash'}</b></p><p><span>Vertex</span><b>{models?.vertex?'enabled':'off'}</b></p></div></Card>; }
+function ListCard({title,items,type}){ return <Card title={title} action={<Badge>{items.length}</Badge>}><div className="list">{items.slice(0,8).map(item=><div className="list-row" key={item.id}><b>{type==='target'?(item.name||item.domain):type==='scan'?item.id.slice(0,8):trim(item.title,70)}</b><span>{type==='target'?item.domain:type==='scan'?`${item.mode} · ${item.status}`:`${item.severity} · ${item.tool||'unknown'}`}</span></div>)}{!items.length&&<Empty>No {title.toLowerCase()} yet.</Empty>}</div></Card>; }
 
-function TargetsPanel({targets}){return <Card title="TARGETS"><div className="list">{targets.slice(0,10).map(t=><div className="row" key={t.id}><div><b>{t.name||t.domain}</b><span>{t.domain}</span></div><Pill>{(t.scope||'').split('\n').filter(Boolean).length || 1} scope</Pill></div>)}{!targets.length&&<div className="empty">No targets yet. Paste a program page into Hunter Brain.</div>}</div></Card>}
-function ScansPanel({scans}){return <Card title="LIVE SCANS"><div className="list">{scans.slice(0,10).map(s=><div className="row" key={s.id}><div><b>{s.id.slice(0,8)}</b><span>{s.mode} · {s.phase} · {fmtDate(s.created_at)}</span></div><Pill tone={String(s.status).includes('done')?'green':String(s.status).includes('fail')?'red':'warn'}>{s.status}</Pill></div>)}{!scans.length&&<div className="empty">No scans yet.</div>}</div></Card>}
-function FindingsPanel({findings}){return <Card title="FINDINGS"><div className="list">{findings.slice(0,12).map(f=><div className="row finding" key={f.id}><div><b>{f.title}</b><span>{f.tool || 'unknown'} · {fmtDate(f.created_at)}</span></div><Pill tone={['critical','high'].includes(String(f.severity).toLowerCase())?'red':String(f.severity).toLowerCase()==='medium'?'warn':'green'}>{f.severity}</Pill></div>)}{!findings.length&&<div className="empty">No findings yet.</div>}</div></Card>}
-
-function HunterBrainPanel({live, upgrades}){
-  const events = [...(live?.live_events||[]), ...(live?.recent_scan_events||[]).map(e=>({type:e.level, payload:e, created_at:e.created_at}))].slice(-80).reverse();
-  return <Card title="HUNTER BRAIN // LIVE EVENT STREAM" action={<Pill>ORTA Loop</Pill>}>
-    <div className="brain-steps"><span>Observe</span><span>Reason</span><span>Think</span><span>Act</span><span>Learn</span></div>
-    <div className="event-feed">{events.slice(0,40).map((e,i)=><div key={i} className="event"><span>{fmtDate(e.created_at)}</span><b>{e.type||e.level||'event'}</b><p>{e.payload?.message || e.message || e.payload?.action || JSON.stringify(e.payload||e).slice(0,180)}</p></div>)}{!events.length&&<div className="empty">Waiting for events...</div>}</div>
-    {upgrades && <pre className="mini-pre">{safeJson(upgrades)}</pre>}
-  </Card>
-}
-
-function KnowledgePanel(){
-  const [stats,setStats]=useState(null);
-  useEffect(()=>{request('/knowledge/stats').then(setStats).catch(()=>setStats({status:'not installed yet'}));},[]);
-  return <Card title="PERSISTENT KNOWLEDGE GRAPH" action={<Pill tone="purple">Cross-Scan Memory</Pill>}>
-    <div className="runner-box"><Stat label="techniques" value={stats?.total_techniques ?? 0}/><Stat label="chains" value={stats?.total_chains ?? 0}/><Stat label="attempts" value={stats?.total_attempts ?? 0}/><Stat label="success rate" value={stats?.overall_success_rate ?? 0}/></div>
-    <div className="graph-placeholder"><div>JWT</div><span></span><div>NodeJS</div><span></span><div>Misconfig</div><span></span><div>Report</div></div>
-  </Card>
-}
-
-function ProgramEarningsPanel({live}){
-  const programs = live?.recent_programs || [];
-  const accounts = live?.bounty_accounts || [];
-  return <Card title="PROGRAM RADAR + EARNINGS"><div className="runner-box"><Stat label="programs" value={programs.length}/><Stat label="accounts" value={accounts.length}/><Stat label="month" value="$0" tone="green"/><Stat label="ROI" value="learn"/></div><div className="list compact">{programs.slice(0,8).map(p=><div className="row" key={p.id}><div><b>{p.name}</b><span>{p.platform} · score {p.value_score}</span></div><Pill tone={p.offers_bounty?'green':'warn'}>{p.offers_bounty?'bounty':'vdp'}</Pill></div>)}{!programs.length&&<div className="empty">Sync bounty accounts or run Program Radar.</div>}</div></Card>
-}
-
-function CommandCenterUpgrade(){
-  const [data,setData]=useState({skills:[],tasks:[],takeovers:[],browser:null,mobile:null,templates:[],evals:[],kg:null});
-  const [findingId,setFindingId]=useState('');
-  const [debate,setDebate]=useState(null);
-  const [report,setReport]=useState(null);
-  const [template,setTemplate]=useState('Generic Markdown');
-  const [apk,setApk]=useState({filename:'app.apk',package_name:''});
-  const refresh=async()=>{
-    const [skills,tasks,takeovers,browser,mobile,templates,evals,kg]=await Promise.all([
-      request('/skills/').catch(()=>[]), request('/tasks/').catch(()=>[]), request('/takeovers/open').catch(()=>[]),
-      request('/browser/capabilities').catch(()=>null), request('/mobile/capabilities').catch(()=>null), request('/reports/templates').catch(()=>[]),
-      request('/evals/results').catch(()=>[]), request('/knowledge/stats').catch(()=>null),
-    ]);
-    setData({skills,tasks,takeovers,browser,mobile,templates,evals,kg});
-  };
-  useEffect(()=>{refresh();},[]);
-  const runDebate=async()=>{ if(!findingId) return; setDebate(await request(`/debate/findings/${findingId}/run`,{method:'POST'}).catch(e=>({error:e.message}))); };
-  const getRecords=async()=>{ if(!findingId) return; setDebate(await request(`/debate/records/${findingId}`).catch(e=>({error:e.message}))); };
-  const genReport=async()=>{ if(!findingId) return; setReport(await request(`/reports/finding/${findingId}/draft?template=${encodeURIComponent(template)}`,{method:'POST'}).catch(e=>({error:e.message}))); };
-  const runEvals=async()=>{ await request('/evals/run-basic',{method:'POST'}).catch(()=>null); await refresh(); };
-  const saveApk=async()=>{ await request('/mobile/apk/metadata',{method:'POST',body:JSON.stringify({...apk,permissions:[],exported_components:[],findings:[]})}).catch(()=>null); await refresh(); };
-  const approvalCount=data.skills.filter(s=>s.requires_approval).length;
-  const passiveCount=data.skills.filter(s=>s.passive_safe).length;
+function Page({active,data,refresh}){
+  const {targets,scans,findings,live,runners,models,upgrades}=data;
+  if(active==='Hunter Brain') return <HunterBrain targets={targets} scans={scans} refresh={refresh}/>;
+  if(active==='Targets') return <ListCard title="Targets" items={targets} type="target"/>;
+  if(active==='Scans') return <ListCard title="Scans" items={scans} type="scan"/>;
+  if(active==='Findings') return <ListCard title="Findings" items={findings} type="finding"/>;
+  if(active==='Runners') return <RunnerCard runners={runners} onRefresh={refresh}/>;
+  if(active==='Knowledge Graph') return <Card title="Knowledge Graph"><p className="plain">Knowledge graph is available through backend modules and appears as scan intelligence is collected.</p><Details value={upgrades?.modules}/></Card>;
+  if(active==='Reports') return <Card title="Reports"><p className="plain">Report builder stays connected to findings and quality agents. Select findings from the Findings page before drafting.</p></Card>;
+  if(active==='Settings') return <Card title="Settings"><div className="settings"><Details value={models}/><Details value={upgrades}/></div></Card>;
   return <>
-    <section className="metrics"><Stat label="registered skills" value={data.skills.length}/><Stat label="passive safe" value={passiveCount} tone="green"/><Stat label="approval required" value={approvalCount} tone="warn"/><Stat label="tasks" value={data.tasks.length}/></section>
-    <section className="three">
-      <Card title="AGENT COMMAND CENTER" action={<Pill>Tasks</Pill>}><div className="warning">Orchestration/state UI only — does not execute scans.</div><div className="list">{data.tasks.slice(0,6).map(t=><div className="row" key={t.id}><div><b>{t.title}</b><span>{t.agent_name} · {t.progress}%</span></div><Pill tone={t.status==='completed'?'green':t.status==='failed'?'red':'warn'}>{t.status}</Pill></div>)}{!data.tasks.length&&<div className="empty">No agent tasks yet.</div>}</div></Card>
-      <Card title="SKILL REGISTRY" action={<Pill>{data.skills.length} tools</Pill>}><div className="chips"><Pill tone="green">passive</Pill><Pill tone="warn">approval</Pill><Pill tone="red">critical</Pill></div><div className="list compact">{data.skills.slice(0,12).map(s=><div className="row" key={s.name}><div><b>{s.display_name}</b><span>{s.category} · {s.phase}</span></div><Pill tone={s.requires_approval?'warn':s.passive_safe?'green':'accent'}>{s.risk_level}</Pill></div>)}</div></Card>
-      <Card title="KNOWLEDGE GRAPH" action={<Pill tone="purple">Memory</Pill>}><div className="runner-box"><Stat label="techniques" value={data.kg?.total_techniques??0}/><Stat label="chains" value={data.kg?.total_chains??0}/><Stat label="attempts" value={data.kg?.total_attempts??0}/><Stat label="success" value={data.kg?.overall_success_rate??0}/></div><pre className="mini-pre">{safeJson(data.kg?.known_technologies||[])}</pre></Card>
-    </section>
-    <section className="three">
-      <Card title="TAKEOVER MONITOR" action={<Pill tone="warn">Disabled default</Pill>}><div className="warning">Scope-guarded; no arbitrary out-of-scope scans.</div><div className="list compact">{data.takeovers.map(c=><div className="row" key={c.id}><div><b>{c.domain}</b><span>{c.service||'unknown'} · {c.cname||'no cname'}</span></div><Pill>{c.status}</Pill></div>)}{!data.takeovers.length&&<div className="empty">No open takeover candidates.</div>}</div></Card>
-      <Card title="DEBATE ENGINE" action={<Pill tone="warn">Review-only</Pill>}><div className="warning">Disabled by default. Evidence is treated as untrusted.</div><div className="select-row"><input value={findingId} onChange={e=>setFindingId(e.target.value)} placeholder="Finding ID"/><button onClick={runDebate}>RUN</button></div><div className="actions"><button onClick={getRecords}>LOAD RECORDS</button></div><pre className="mini-pre">{safeJson(debate||{})}</pre></Card>
-      <Card title="BROWSER DEVTOOLS MCP" action={<Pill tone={data.browser?.enabled?'green':'warn'}>{data.browser?.enabled?'enabled':'disabled'}</Pill>}><div className="warning">Metadata/capabilities only; no navigation.</div><div className="chips">{(data.browser?.capabilities||[]).map(c=><Pill key={c}>{c}</Pill>)}</div></Card>
-    </section>
-    <section className="three">
-      <Card title="MOBILE APK HUNTER" action={<Pill>Static shell</Pill>}><div className="chips">{(data.mobile?.capabilities||[]).slice(0,7).map(c=><Pill key={c}>{c}</Pill>)}</div><div className="select-row"><input value={apk.filename} onChange={e=>setApk({...apk,filename:e.target.value})}/><button onClick={saveApk}>SAVE APK META</button></div></Card>
-      <Card title="REPORT BUILDER" action={<Pill>Templates</Pill>}><div className="select-row"><select value={template} onChange={e=>setTemplate(e.target.value)}>{(data.templates.length?data.templates:['Generic Markdown']).map(t=><option key={t}>{t}</option>)}</select><button onClick={genReport}>DRAFT</button></div><pre className="mini-pre">{safeJson(report||{})}</pre></Card>
-      <Card title="EVALS / REVISIONS" action={<Pill tone="purple">Harness</Pill>}><button onClick={runEvals} className="primary">RUN BASIC EVALS</button><div className="list compact">{data.evals.slice(0,8).map(e=><div className="row" key={e.id}><div><b>{e.test_name}</b><span>{e.details}</span></div><Pill tone={e.status==='pass'?'green':e.status==='fail'?'red':'warn'}>{e.status}</Pill></div>)}</div></Card>
-    </section>
+    <div className="top-grid"><RunnerCard runners={runners} onRefresh={refresh}/><ModelCard models={models}/><div className="stats-grid"><Stat label="targets" value={targets.length}/><Stat label="scans" value={scans.length}/><Stat label="findings" value={findings.length}/><Stat label="critical/high" value={findings.filter(f=>['critical','high'].includes(String(f.severity).toLowerCase())).length} tone="red"/></div></div>
+    <div className="main-grid"><HunterBrain targets={targets} scans={scans} refresh={refresh}/><Activity live={live}/></div>
   </>;
 }
 
 export default function App(){
-  const {live, targets, scans, findings, runners, models, upgrades, err, refresh} = useDashboardData();
-  const recentScans = live?.recent_scans || scans || [];
-  const recentFindings = live?.recent_findings || findings || [];
-  const severity = useMemo(()=>recentFindings.reduce((a,f)=>{const s=String(f.severity||'info').toLowerCase();a[s]=(a[s]||0)+1;return a;},{}),[recentFindings]);
-  return <div className="app-shell">
-    <div className="grid-bg" />
-    <header className="topbar"><div><h1>BOUNTYOS v6</h1><p>Gemini Command Center · Hunter Brain · Autonomous Bug Bounty OS</p></div><div className="top-pills"><Pill tone="green">Vertex/Gemini</Pill><Pill>Hybrid Runner</Pill><Pill tone={err?'red':'green'}>{err?'API WARN':'API LIVE'}</Pill></div></header>
-    <main className="layout">
-      <section className="hero"><HunterChat targets={targets||[]} scans={recentScans||[]} refresh={refresh}/><RunnerPanel runners={runners} models={models}/></section>
-      <section className="metrics"><Stat label="targets" value={(targets||[]).length}/><Stat label="scans" value={(recentScans||[]).length}/><Stat label="findings" value={(recentFindings||[]).length}/><Stat label="critical/high" value={(severity.critical||0)+(severity.high||0)} tone="bad"/></section>
-      <section className="three"><TargetsPanel targets={targets||[]}/><ScansPanel scans={recentScans||[]}/><FindingsPanel findings={recentFindings||[]}/></section>
-      <section className="two"><HunterBrainPanel live={live} upgrades={upgrades}/><KnowledgePanel/></section>
-      <CommandCenterUpgrade/>
-      <section className="two"><ProgramEarningsPanel live={live}/><Card title="LIVE TERMINAL"><div className="terminal"><p>$ hunter brain ready</p><p>$ paste target page → extract scope → create target → scan → report</p><p>$ use approved actions for active testing</p><p>$ sandbox runner intentionally not included</p></div></Card></section>
-    </main>
-  </div>;
+  const [active,setActive] = useState('Dashboard');
+  const data = useData();
+  return <div className="shell"><aside className="sidebar"><div className="logo"><span>B6</span><div><b>BountyOS v6</b><small>Personal command center</small></div></div><nav>{NAV.map(n=><button key={n} className={active===n?'active':''} onClick={()=>setActive(n)}>{n}</button>)}</nav></aside><main className="content"><header className="header"><div><p>Workspace</p><h1>{active}</h1></div><div className="header-badges"><Badge tone="green">Gemini/Vertex</Badge><Badge tone={(data.runners?.online||[]).length?'green':'red'}>{(data.runners?.online||[]).length?'Runner online':'Runner offline'}</Badge><Badge tone={data.error?'amber':'cyan'}>{data.error?'API warning':'API live'}</Badge></div></header>{data.error&&<div className="banner">{data.error}</div>}<Page active={active} data={data} refresh={data.refresh}/></main></div>;
 }
