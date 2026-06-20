@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,8 @@ from api.realtime import publish_sync, set_agent_state
 from api.agents.model_router import router as model_router
 from api.agents.live_data_agent import live_data_agent
 from api.integrations.gemini_client import GeminiClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -408,8 +411,9 @@ class ArchitectAgent:
         try:
             result = await self.act(session, background_tasks, decision, approve=approve, transcript=transcript, obs=obs)
         except Exception as exc:
+            logger.exception("Architect agent action failed: action=%s", decision.action)
             if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
-                result = {"ok": False, "provider": "gemini", "error": str(exc)}
+                result = {"ok": False, "provider": "gemini", "error": "An internal error occurred while processing the request."}
             else:
                 raise
         finally:
