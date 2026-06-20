@@ -19,6 +19,7 @@ from api.database import get_session, session_ctx
 from api.models import Scan, Target, Finding, ScanEvent, ScanPhase, ScanStatus
 from api.agents.coordinator import run_ai_coordinator
 from api.agents.live_data_agent import live_data_agent
+from api.integrations.gemini_client import GeminiClient
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -79,45 +80,34 @@ def _last_user_text(messages: List[ChatMessage]) -> str:
     return ""
 
 
-def _local_heuristic_answer(user_text: str, ctx: str, route: dict) -> str:
-    """Fast local fallback for light/recon chat. No external model required."""
-    lower = user_text.lower()
-    lines = [
-        f"**Model route:** `{route['expert']}` using `{route['model']}`",
-        "",
-    ]
-    if "passive" in lower or "recon" in lower:
-        lines += [
-            "Use the Architect Agent for tool execution:",
-            "`POST /api/v1/agent/command` with `Run passive recon`.",
-            "Passive recon is routed to the local/light expert because it is workflow control, not heavy bug reasoning.",
-        ]
-    elif "finding" in lower or "bug" in lower or "critical" in lower:
-        lines += [
-            "For full bug reasoning, select a scan and ask for analysis. The MoE router will switch to the main bug reasoning expert when scan context exists.",
-            "Useful commands: `show findings`, `run AI analysis`, `summarize this scan`.",
-        ]
-    elif "model" in lower or "expert" in lower:
-        lines += [
-            "BountyOS now uses workload routing:",
-            "- `local_recon_expert` for recon/status/tool commands",
-            "- `light_triage_expert` for simple chat",
-            "- `bug_reasoning_expert` for post-scan bug analysis",
-            "- `exploit_validation_expert` for approved active validation planning",
-        ]
-    else:
-        lines += [
-            "I can explain findings, summarize scans, suggest next steps, or route tool commands through the Architect Agent.",
-            "For actions, use commands like `run passive recon`, `show findings`, `run AI analysis`, or `cancel scan`.",
-        ]
-    if ctx:
-        lines += ["", "Scan context is available and can be used for deeper analysis."]
-    return "\n".join(lines)
-
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
+@router.get("/models")
+def get_model_config():
+    """Return the non-secret Gemini/Vertex model routing configuration."""
+    vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "false").strip().lower()
+    return {
+        "provider": os.getenv("BOUNTYOS_AI_PROVIDER", "gemini"),
+        "policy": os.getenv("BOUNTYOS_MODEL_POLICY", "performance"),
+        "chat_model": os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite")),
+        "planner_model": os.getenv("BOUNTYOS_PLANNER_MODEL", "gemini-2.5-flash"),
+        "recon_model": os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash"),
+        "parser_model": os.getenv("BOUNTYOS_PARSER_MODEL", "gemini-2.5-flash"),
+        "agentic_model": os.getenv("BOUNTYOS_AGENTIC_MODEL", "gemini-3.5-flash"),
+        "browser_model": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash"),
+        "caido_model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash"),
+        "exploit_model": os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"),
+        "validation_model": os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro")),
+        "report_model": os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")),
+        "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"),
+        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"),
+        "aggressive_model": os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", "gemini-2.5-pro"),
+        "vertex": vertex in {"1", "true", "yes", "on"},
+    }
+
+
 @router.post("/chat")
-def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
+async def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
     """
     Free-form security Q&A. Optionally injects scan context so operators
     can ask questions like "what are the most critical findings?" or
@@ -154,33 +144,28 @@ def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
             "live_data": live.as_dict(),
         }
 
-    # Light/local workloads do not need paid API calls. Heavy bug reasoning still uses the main model.
+    model = selected.model
     if selected.provider in ("local", "tool"):
-        return {
-            "response": _local_heuristic_answer(user_text, ctx if req.scan_id else "", selected.as_dict()),
-            "model_route": selected.as_dict(),
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "local": True,
-        }
+        model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"))
+    if selected.expert == "local_recon_expert":
+        model = os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash")
+    if not model:
+        model = MODEL
 
     try:
-        response = _client.messages.create(
-            model=selected.model or MODEL,
-            max_tokens=selected.max_tokens,
-            system=system_prompt + "\n\nModel routing: " + json.dumps(selected.as_dict()),
-            messages=[{"role": m.role, "content": m.content} for m in req.messages],
-        )
-        text = "".join(
-            block.text for block in response.content if block.type == "text"
+        gemini = GeminiClient()
+        ai = await gemini.chat(
+            [{"role": m.role, "content": m.content} for m in req.messages],
+            context={"system": system_prompt, "scan_context": ctx if req.scan_id else "", "model_route": selected.as_dict()},
+            model=model,
         )
         return {
-            "response":     text,
-            "model_route":  selected.as_dict(),
-            "input_tokens":  response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
+            "response": ai.text,
+            "provider": ai.provider,
+            "model": ai.model,
+            "model_route": selected.as_dict(),
         }
-    except AIProviderError as e:
+    except Exception as e:
         raise HTTPException(502, str(e))
 
 
