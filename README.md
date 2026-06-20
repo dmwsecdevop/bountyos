@@ -1,14 +1,27 @@
 # BountyOS v6.0.0 — Self-Hosted Bug Bounty Command Center
 
-BountyOS v6 is a self-hosted, AI-assisted bug bounty operations platform. It combines a FastAPI backend, a static React v6 Command Center UI, authenticated runner bridge, WebSocket live updates, targets/scans/findings, Hunter Brain, knowledge graph, program radar, report agents, and quality agents.
+BountyOS v6 is a personal, self-hosted, AI-assisted bug bounty operations platform. It combines a FastAPI backend, React dashboard, Gemini Hunter Brain, authenticated runner bridge, targets/scans/findings, live logs, integrations, reports, and quality agents.
 
-The recommended deployment for v6 is a VPS-first Docker Compose stack with Postgres and Redis. Gemini API is the default AI mode, with optional Vertex AI support for operators who already use Google Cloud.
+The current design goal is simple: **Codex-style command UI first, raw logs only when opened, integrations/tools on separate pages.**
+
+## Current dashboard layout
+
+BountyOS now uses a cleaner multi-page console:
+
+- **Hunter Brain** — main chat/command panel. Natural language summaries only. Raw JSON/logs stay collapsed.
+- **Findings** — parsed finding cards and evidence summaries.
+- **Integrations** — API/setup boxes for Gemini, Chrome DevTools MCP, Caido, Burp, ZAP, HackerOne, and Bugcrowd.
+- **Tools** — runner inventory and tool versions.
+- **Settings** — safety and local-use notes.
+
+The main chat should not dump large JSON blocks. Use **Raw JSON**, **Planner details**, **Evidence**, or **Show Logs** only when you need low-level output.
 
 ## What BountyOS v6 includes
 
 - FastAPI API and static React dashboard served from one app container
 - Gemini/Gemini API model routing and optional Vertex AI mode
-- Authenticated outbound runner bridge for VM/Docker security tools
+- Gemini 3.5 Flash routing for agentic/browser/proxy analysis where configured
+- Authenticated outbound runner bridge for WSL, VM, VPS, or container tools
 - WebSocket routes for live scan and runner events
 - Targets, scans, findings, approvals, reports, and quality review agents
 - Hunter Brain UI, knowledge graph, and program radar workflows
@@ -34,7 +47,7 @@ For production VPS setup, Nginx, TLS, runner setup, updates, and backup/restore,
 
 ## Required Gemini API configuration
 
-Set these values in `.env` for the default self-host mode. BountyOS v6 uses performance-first routing: Flash-class models handle fast planning/browser/proxy work, while Pro-class models handle exploit validation, high-impact reasoning, severity validation, and report writing.
+Set these values in `.env` for the default self-host mode. BountyOS v6 uses performance-first routing: Flash-class models handle fast planning/browser/proxy work, while Pro-class models handle validation, high-impact reasoning, severity review, and report writing.
 
 ```bash
 BOUNTYOS_VERSION=6.0.0
@@ -57,9 +70,46 @@ BOUNTYOS_BUG_FALLBACK_MODEL=gemini-3.5-flash
 BOUNTYOS_REPORT_MODEL=gemini-2.5-pro
 ```
 
+## Local Docker workflow
+
+```bash
+cd ~/bountyos
+git pull
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+docker compose ps
+curl -s http://localhost:8080/health | python3 -m json.tool
+```
+
+Open:
+
+```text
+http://localhost:8080
+```
+
+## Local runner workflow
+
+Heavy recon tools should run through the runner, not inside the app container.
+
+```bash
+cd ~/bountyos
+source .runner-venv/bin/activate
+./start-bountyos.sh
+curl -s http://localhost:8080/api/v1/runners/capabilities | python3 -m json.tool
+```
+
+Expected: `online` contains `bountyos-local-runner` and a non-zero tool count.
+
+Known WSL/tool cleanup targets:
+
+- If the runner reports Python `httpx` instead of ProjectDiscovery `httpx`, fix PATH/tool discovery.
+- `whatweb`, `dnsrecon`, `dirsearch`, and some Impacket helpers may need package repair on Ubuntu/WSL.
+- Broken tools should be fixed in install scripts and runner discovery, not hidden in the UI.
+
 ## Browser MCP and Caido integrations
 
-Optional integrations are disabled until configured. They never navigate outside approved target scope, and any active/intrusive validation remains approval-gated.
+Optional integrations are disabled until configured. They never navigate outside approved target scope, and active/intrusive validation remains approval-gated.
 
 ```bash
 # Chrome DevTools MCP / browser evidence
@@ -114,19 +164,6 @@ docker compose up -d
 docker compose down
 ```
 
-## Runner bridge
-
-Heavy recon and active validation tools should run outside the app container. Create a runner in the BountyOS UI, copy the one-time runner token, then start a runner host/container with:
-
-```bash
-export SERVER=https://YOUR_DOMAIN_HERE
-export RUNNER_ID=PASTE_RUNNER_ID
-export RUNNER_TOKEN=PASTE_RUNNER_TOKEN
-./scripts/start-runner-docker.sh
-```
-
-The runner connects outbound over the authenticated WebSocket bridge, advertises allowed tools, and executes safe argv jobs without opening inbound ports.
-
 ## Local development
 
 Backend:
@@ -149,7 +186,9 @@ cp -R dist/* ../static/
 
 ## Security notes
 
+- Use BountyOS only for authorized targets and your own lab assets.
 - Do not commit `.env`, API keys, database passwords, runner tokens, logs, SQLite databases, or backups.
 - Active/destructive tooling must remain approval-gated.
+- Raw logs can contain secrets; keep them collapsed by default and redact before sharing.
 - Keep `BOUNTYOS_VERSION=6.0.0` for this release line.
 - Configure `ALLOWED_ORIGINS` for your production domain.
