@@ -296,7 +296,12 @@ def provider_status() -> dict[str, Any]:
         "project": os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT"),
         "location": os.getenv("GOOGLE_CLOUD_LOCATION", "global"),
         "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"),
-        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"),
+        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash"),
+        "chat_model": os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash")),
+        "planner_model": os.getenv("BOUNTYOS_PLANNER_MODEL", "gemini-2.5-flash"),
+        "parser_model": os.getenv("BOUNTYOS_PARSER_MODEL", "gemini-2.5-flash"),
+        "validation_model": os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro")),
+        "report_model": os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")),
         "recon_model": os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash"),
         "validation_model": os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"),
         "configured": bool(

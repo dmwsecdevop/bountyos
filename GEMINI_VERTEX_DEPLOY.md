@@ -1,7 +1,6 @@
-# BountyOS v5.1 — Gemini / Vertex AI migration
+# BountyOS v6.0.0 — Gemini / Vertex AI notes
 
-This build replaces active Anthropic/Claude calls with the official `google-genai`
-SDK while preserving the existing BountyOS agent loops and function-calling tools.
+BountyOS v6 uses the official `google-genai` SDK while preserving the existing BountyOS agent loops and function-calling tools.
 
 ## Runtime model routing
 
@@ -13,9 +12,9 @@ SDK while preserving the existing BountyOS agent loops and function-calling tool
 
 All model IDs are environment variables and can be changed without code edits.
 
-## Required GCP access
+## Optional Vertex AI access
 
-The Cloud Run service and worker VM service account must have:
+If you choose optional Vertex AI deployment, the service account must have:
 
 ```bash
 gcloud projects add-iam-policy-binding bountyos \
@@ -23,11 +22,9 @@ gcloud projects add-iam-policy-binding bountyos \
   --role='roles/aiplatform.user'
 ```
 
-The user's environment already confirmed this account is attached to both runtimes.
-
 ## Build and deploy safely
 
-Keep the current working Cloud Run revision available for rollback. From this source directory:
+For optional Cloud Run deployment, keep the current working revision available for rollback. From this source directory:
 
 ```bash
 PROJECT_ID=bountyos \
