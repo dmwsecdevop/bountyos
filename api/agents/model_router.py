@@ -166,6 +166,21 @@ class ModelExpertRouter:
                 next_actions=["Import in-scope proxy history", "Analyze selected requests", "Flag IDOR/auth/SSRF/GraphQL/JWT/CORS/secret risks"],
                 max_tokens=2048,
             )
+        return (
+            "generic_domain",
+            ["subfinder", "dnsx", "httpx", "katana", "whatweb", "nuclei safe templates"],
+            ["Passive recon", "Resolve live hosts", "Detect technologies", "Rank next safe checks"],
+        )
+
+    def route(
+        self,
+        text: str = "",
+        action: str = "",
+        has_scan_context: bool = False,
+        target_context: Optional[dict[str, Any]] = None,
+    ) -> ExpertRoute:
+        raw = f"{text} {action}".lower()
+        profile, profile_tools, profile_actions = self.classify_target(raw, target_context)
 
         if any(k in raw for k in ["agentic", "autonomous", "plan workflow", "operate", "browser", "caido"]):
             return self._route(
