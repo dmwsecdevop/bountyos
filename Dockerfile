@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       jq \
       dnsutils \
       whois \
+      nodejs \
+      npm \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -23,6 +25,10 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+RUN if [ -f dashboard/package.json ]; then \
+      cd dashboard && npm ci && npm run build && rm -rf ../static/* && cp -R dist/* ../static/; \
+    fi
 
 RUN python -m compileall -q api runner
 
