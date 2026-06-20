@@ -103,18 +103,20 @@ function StatusCard({title, children, action}) {
 }
 
 function useOpsData() {
-  const [data, setData] = useState({targets: [], scans: [], findings: [], live: null, runners: null, models: null});
+  const [data, setData] = useState({targets: [], scans: [], findings: [], live: null, runners: null, models: null, browserStatus: null, caidoStatus: null});
   const [error, setError] = useState('');
   const refresh = async () => {
-    const [targets, scans, findings, live, runners, models] = await Promise.all([
+    const [targets, scans, findings, live, runners, models, browserStatus, caidoStatus] = await Promise.all([
       api('/targets/').catch(() => []),
       api('/scans/').catch(() => []),
       api('/findings/').catch(() => []),
       api('/live/snapshot').catch(() => null),
       api('/runners/capabilities').catch(() => null),
       api('/ai/models').catch(() => null),
+      api('/integrations/browser/status').catch(() => null),
+      api('/integrations/caido/status').catch(() => null),
     ]);
-    setData({targets, scans, findings, live, runners, models});
+    setData({targets, scans, findings, live, runners, models, browserStatus, caidoStatus});
     setError('');
   };
   useEffect(() => {
@@ -123,6 +125,35 @@ function useOpsData() {
     return () => clearInterval(id);
   }, []);
   return {...data, error, refresh};
+}
+
+
+function IntegrationsPanel({data, push}) {
+  const [selectedRequest, setSelectedRequest] = useState('{"host":"example.com","method":"GET","path":"/"}');
+  const runIntegration = async (label, fn) => {
+    try {
+      const res = await fn();
+      push({role: 'assistant', ...normalizeResponse(res, `${label} complete.`)});
+    } catch (e) {
+      push({...emptyMessage, role: 'assistant', summary: e.status === 404 ? 'Backend endpoint not available.' : `${label} failed: ${e.message}`, raw: e.payload || {error: e.message}});
+    }
+  };
+  return <section className="integrations-page">
+    <div className="integration-grid">
+      <StatusCard title="Gemini Models">
+        <div className="compact-copy"><b>{data.models?.policy || 'performance'}</b><span>Chat {data.models?.chat_model || 'gemini-2.5-flash-lite'} · Browser {data.models?.browser_model || 'gemini-3.5-flash'} · Caido {data.models?.caido_model || 'gemini-3.5-flash'}</span></div>
+      </StatusCard>
+      <StatusCard title="Chrome DevTools MCP">
+        <div className="compact-copy"><b>{data.browserStatus?.enabled ? 'Configured' : 'Not configured'}</b><span>{data.browserStatus?.url || 'Set CHROME_DEVTOOLS_MCP_URL'}</span></div>
+        <div className="composer-actions"><button onClick={() => runIntegration('Connect Browser', () => api('/integrations/browser/status'))}>Connect Browser</button><button onClick={() => runIntegration('Analyze Current Page', () => api('/integrations/browser/analyze', {method: 'POST', body: JSON.stringify({})}))}>Analyze Current Page</button></div>
+      </StatusCard>
+      <StatusCard title="Caido Proxy">
+        <div className="compact-copy"><b>{data.caidoStatus?.token_set ? 'Token configured' : 'Missing token'}</b><span>{data.caidoStatus?.url || 'Set CAIDO_URL and CAIDO_API_TOKEN'}</span></div>
+        <textarea value={selectedRequest} onChange={e => setSelectedRequest(e.target.value)} />
+        <div className="composer-actions"><button onClick={() => runIntegration('Import Caido Traffic', () => api('/integrations/caido/import-history', {method: 'POST', body: JSON.stringify({limit: 100})}))}>Import Caido Traffic</button><button onClick={() => runIntegration('Analyze Selected Request', () => api('/integrations/caido/analyze-request', {method: 'POST', body: JSON.stringify({request: JSON.parse(selectedRequest || '{}')})}))}>Analyze Selected Request</button></div>
+      </StatusCard>
+    </div>
+  </section>;
 }
 
 function Sidebar({data, selectedTargetId, selectedScanId, onSelectTarget, onSelectScan, onRefresh}) {
@@ -184,6 +215,7 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false);
   const [selectedTargetId, setSelectedTargetId] = useState('');
   const [selectedScanId, setSelectedScanId] = useState('');
+  const [view, setView] = useState('chat');
   const chatRef = useRef(null);
   const [messages, setMessages] = useState([
     {...emptyMessage, role: 'system', summary: 'BountyOS v6 Hunter Brain is ready. Ask for recon, paste a target page, or review findings. Raw execution data stays collapsed until you ask for it.'},
@@ -256,28 +288,31 @@ export default function App() {
         </div>
         <div className="topbar-badges">
           <Badge tone={(data.runners?.online || []).length ? 'green' : 'red'}>{(data.runners?.online || []).length ? 'runner online' : 'runner offline'}</Badge>
-          <Badge tone="cyan">{data.models?.chat_model || data.models?.light_model || 'gemini-2.5-flash'}</Badge>
+          <Badge tone="cyan">{data.models?.chat_model || data.models?.light_model || 'gemini-2.5-flash-lite'}</Badge>
           <Badge>{data.error ? 'API warning' : 'API live'}</Badge>
+          <button className="pill-button" onClick={() => setView(view === 'chat' ? 'integrations' : 'chat')}>{view === 'chat' ? 'Integrations' : 'Hunter Brain'}</button>
         </div>
       </header>
 
-      <section className="chat-stream" ref={chatRef}>
-        {messages.map((message, index) => <ChatMessage key={index} message={message}/>)}
-      </section>
+      {view === 'integrations' ? <IntegrationsPanel data={data} push={push}/> : <>
+        <section className="chat-stream" ref={chatRef}>
+          {messages.map((message, index) => <ChatMessage key={index} message={message}/>)}
+        </section>
 
-      <section className="composer">
-        <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Ask Hunter Brain what to do next, paste a target page, or request recon..." onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}/>
-        <div className="composer-actions">
-          <button className="primary" onClick={send} disabled={busy}>Send</button>
-          <button onClick={passiveRecon} disabled={busy}>Run Passive Recon</button>
-          <button onClick={extractTarget} disabled={busy}>Extract Target</button>
-          <button onClick={createTarget} disabled={busy}>Create Target</button>
-          <button onClick={approveActive} disabled={busy}>Approve Active Scan</button>
-          <button onClick={() => setShowLogs(v => !v)}>Show Logs</button>
-        </div>
-      </section>
+        <section className="composer">
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Ask Hunter Brain what to do next, paste a target page, or request recon..." onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}/>
+          <div className="composer-actions">
+            <button className="primary" onClick={send} disabled={busy}>Send</button>
+            <button onClick={passiveRecon} disabled={busy}>Run Passive Recon</button>
+            <button onClick={extractTarget} disabled={busy}>Extract Target</button>
+            <button onClick={createTarget} disabled={busy}>Create Target</button>
+            <button onClick={approveActive} disabled={busy}>Approve Active Scan</button>
+            <button onClick={() => setShowLogs(v => !v)}>Show Logs</button>
+          </div>
+        </section>
 
-      <LogsDrawer open={showLogs} live={data.live}/>
+        <LogsDrawer open={showLogs} live={data.live}/>
+      </>}
     </main>
 
     <Sidebar data={data} selectedTargetId={selectedTargetId} selectedScanId={selectedScanId} onSelectTarget={setSelectedTargetId} onSelectScan={setSelectedScanId} onRefresh={data.refresh}/>

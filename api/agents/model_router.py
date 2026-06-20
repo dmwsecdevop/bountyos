@@ -30,6 +30,7 @@ class ExpertRoute:
     next_actions: list[str]
     requires_approval: bool = False
     approval_reason: str = ""
+    fallback_model: str = ""
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -40,13 +41,17 @@ class ModelExpertRouter:
         self.policy = os.getenv("BOUNTYOS_MODEL_POLICY", "performance")
         self.provider = os.getenv("BOUNTYOS_AI_PROVIDER", "gemini")
         self.live_model = os.getenv("BOUNTYOS_LIVE_MODEL", "tool-live-data")
-        self.chat_model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", FLASH_DEFAULT))
+        self.chat_model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"))
         self.planner_model = os.getenv("BOUNTYOS_PLANNER_MODEL", FLASH_DEFAULT)
         self.recon_model = os.getenv("BOUNTYOS_RECON_MODEL", FLASH_DEFAULT)
         self.parser_model = os.getenv("BOUNTYOS_PARSER_MODEL", FLASH_DEFAULT)
+        self.agentic_model = os.getenv("BOUNTYOS_AGENTIC_MODEL", "gemini-3.5-flash")
+        self.browser_model = os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash")
+        self.caido_model = os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash")
         self.exploit_model = os.getenv("BOUNTYOS_EXPLOIT_MODEL", PRO_DEFAULT)
         self.validation_model = os.getenv("BOUNTYOS_VALIDATION_MODEL", self.exploit_model)
         self.report_model = os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", PRO_DEFAULT))
+        self.bug_fallback_model = os.getenv("BOUNTYOS_BUG_FALLBACK_MODEL", "gemini-3.5-flash")
 
     def _route(
         self,
@@ -62,6 +67,7 @@ class ModelExpertRouter:
         provider: Optional[str] = None,
         requires_approval: bool = False,
         approval_reason: str = "",
+        fallback_model: str = "",
     ) -> ExpertRoute:
         return ExpertRoute(
             expert=expert,
@@ -76,6 +82,7 @@ class ModelExpertRouter:
             next_actions=next_actions,
             requires_approval=requires_approval,
             approval_reason=approval_reason,
+            fallback_model=fallback_model,
         )
 
     @staticmethod
@@ -136,6 +143,57 @@ class ModelExpertRouter:
         raw = f"{text} {action}".lower()
         profile, profile_tools, profile_actions = self.classify_target(raw, target_context)
 
+        if any(k in raw for k in ["analyze browser", "use browser", "browser mcp", "current page", "devtools"]):
+            return self._route(
+                expert="browser_reasoning_expert",
+                model=self.browser_model,
+                workload="browser_reasoning",
+                reason="Browser/Chrome DevTools MCP task detected; use Gemini 3.5 Flash for agentic browser reasoning.",
+                target_profile=profile,
+                selected_tools=["Chrome DevTools MCP", "console logs", "network capture", "JS endpoint extraction", *profile_tools],
+                next_actions=["Collect current in-scope page", "Import console/network evidence", "Extract JS endpoints", "Detect auth/session flows"],
+                max_tokens=2048,
+            )
+
+        if any(k in raw for k in ["check caido", "caido traffic", "use caido", "proxy traffic", "analyze request"]):
+            return self._route(
+                expert="caido_analysis_expert",
+                model=self.caido_model,
+                workload="caido_analysis",
+                reason="Caido proxy traffic analysis detected; use Gemini 3.5 Flash for fast traffic triage.",
+                target_profile=profile,
+                selected_tools=["Caido HTTP history", "request/response analysis", "evidence store", *profile_tools],
+                next_actions=["Import in-scope proxy history", "Analyze selected requests", "Flag IDOR/auth/SSRF/GraphQL/JWT/CORS/secret risks"],
+                max_tokens=2048,
+            )
+        return (
+            "generic_domain",
+            ["subfinder", "dnsx", "httpx", "katana", "whatweb", "nuclei safe templates"],
+            ["Passive recon", "Resolve live hosts", "Detect technologies", "Rank next safe checks"],
+        )
+
+    def route(
+        self,
+        text: str = "",
+        action: str = "",
+        has_scan_context: bool = False,
+        target_context: Optional[dict[str, Any]] = None,
+    ) -> ExpertRoute:
+        raw = f"{text} {action}".lower()
+        profile, profile_tools, profile_actions = self.classify_target(raw, target_context)
+
+        if any(k in raw for k in ["agentic", "autonomous", "plan workflow", "operate", "browser", "caido"]):
+            return self._route(
+                expert="agentic_planning_expert",
+                model=self.agentic_model,
+                workload="agentic_planning",
+                reason="Agentic workflow planning detected; use Gemini 3.5 Flash.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=["Create bounded job", "Select safe tools", "Store evidence", "Ask approval before active validation"],
+                max_tokens=2048,
+            )
+
         if any(k in raw for k in ["dollar rate", "usd rate", "exchange rate", "bitcoin price", "btc price", "ethereum price", "eth price", "latest cve", "recent cve", "today cve", "vulnerability news", "public ip", "what is my ip"]):
             return self._route(
                 expert="live_data_expert",
@@ -175,6 +233,7 @@ class ModelExpertRouter:
                 max_tokens=4096,
                 requires_approval=any(k in raw for k in ["exploit", "validate", "proof", "poc", "sqlmap", "active"]),
                 approval_reason="Active or intrusive validation may affect the target; explicit approval is required before execution.",
+                fallback_model=self.bug_fallback_model,
             )
 
         if any(k in raw for k in ["parse", "extract", "tool output", "stdout", "json", "findings"]):
@@ -237,6 +296,7 @@ class ModelExpertRouter:
                 selected_tools=profile_tools + ["evidence review", "confidence scoring"],
                 next_actions=["Review evidence", "Reduce false positives", "Rank impact"],
                 max_tokens=4096,
+                fallback_model=self.bug_fallback_model,
             )
 
         return self._route(

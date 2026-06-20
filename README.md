@@ -34,7 +34,7 @@ For production VPS setup, Nginx, TLS, runner setup, updates, and backup/restore,
 
 ## Required Gemini API configuration
 
-Set these values in `.env` for the default self-host mode:
+Set these values in `.env` for the default self-host mode. BountyOS v6 uses performance-first routing: Flash-class models handle fast planning/browser/proxy work, while Pro-class models handle exploit validation, high-impact reasoning, severity validation, and report writing.
 
 ```bash
 BOUNTYOS_VERSION=6.0.0
@@ -43,11 +43,51 @@ BOUNTYOS_AI_PROVIDER=gemini
 BOUNTYOS_MAIN_PROVIDER=gemini
 GOOGLE_GENAI_USE_VERTEXAI=false
 GEMINI_API_KEY=PASTE_GEMINI_API_KEY
-BOUNTYOS_LIGHT_MODEL=gemini-2.5-flash-lite
+BOUNTYOS_MODEL_POLICY=performance
+BOUNTYOS_CHAT_MODEL=gemini-2.5-flash-lite
 BOUNTYOS_RECON_MODEL=gemini-2.5-flash
-BOUNTYOS_MAIN_MODEL=gemini-2.5-pro
-BOUNTYOS_AGGRESSIVE_MODEL=gemini-2.5-pro
+BOUNTYOS_PLANNER_MODEL=gemini-2.5-flash
+BOUNTYOS_PARSER_MODEL=gemini-2.5-flash
+BOUNTYOS_AGENTIC_MODEL=gemini-3.5-flash
+BOUNTYOS_BROWSER_MODEL=gemini-3.5-flash
+BOUNTYOS_CAIDO_MODEL=gemini-3.5-flash
 BOUNTYOS_EXPLOIT_MODEL=gemini-2.5-pro
+BOUNTYOS_VALIDATION_MODEL=gemini-2.5-pro
+BOUNTYOS_BUG_FALLBACK_MODEL=gemini-3.5-flash
+BOUNTYOS_REPORT_MODEL=gemini-2.5-pro
+```
+
+## Browser MCP and Caido integrations
+
+Optional integrations are disabled until configured. They never navigate outside approved target scope, and any active/intrusive validation remains approval-gated.
+
+```bash
+# Chrome DevTools MCP / browser evidence
+export CHROME_DEVTOOLS_MCP_URL=http://127.0.0.1:9222
+curl http://localhost:8080/api/v1/integrations/browser/status
+curl -X POST http://localhost:8080/api/v1/integrations/browser/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"target_id":"TARGET_UUID","scan_id":"SCAN_UUID"}'
+
+# Caido proxy traffic import/analysis
+export CAIDO_URL=http://127.0.0.1:8080
+export CAIDO_API_TOKEN=PASTE_CAIDO_TOKEN
+curl http://localhost:8080/api/v1/integrations/caido/status
+curl -X POST http://localhost:8080/api/v1/integrations/caido/import-history \
+  -H 'Content-Type: application/json' \
+  -d '{"limit":100,"target_id":"TARGET_UUID","scan_id":"SCAN_UUID"}'
+curl -X POST http://localhost:8080/api/v1/integrations/caido/analyze-request \
+  -H 'Content-Type: application/json' \
+  -d '{"request":{"host":"example.com","method":"GET","path":"/api/me"},"target_id":"TARGET_UUID"}'
+```
+
+Useful Hunter Brain commands:
+
+```text
+analyze browser
+use browser on the selected target
+check caido traffic
+use caido to analyze proxy history
 ```
 
 ## Optional Vertex AI mode

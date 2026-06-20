@@ -398,3 +398,129 @@ async def export_json(scan_id: str, session: Session = Depends(get_session)):
             } for f in findings
         ],
     }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CHROME DEVTOOLS MCP / BROWSER AGENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from api.integrations.browser_mcp import BrowserMCPClient, BrowserMCPError
+from api.integrations.caido_client import CaidoClient as BountyCaidoClient, CaidoConfigError, CaidoSafetyError
+from api.models import ScanEvent, ScanPhase
+
+
+class BrowserAnalyzeRequest(BaseModel):
+    target_id: Optional[str] = None
+    scan_id: Optional[str] = None
+
+
+class CaidoImportRequest(BaseModel):
+    limit: int = 100
+    target_id: Optional[str] = None
+    scan_id: Optional[str] = None
+
+
+class CaidoAnalyzeRequest(BaseModel):
+    request: dict
+    target_id: Optional[str] = None
+    scan_id: Optional[str] = None
+
+
+def _target_dict(session: Session, target_id: Optional[str]) -> Optional[dict]:
+    if not target_id:
+        return None
+    target = session.get(Target, target_id)
+    if not target:
+        raise HTTPException(404, "Target not found")
+    return target.model_dump(mode="json")
+
+
+def _store_event(session: Session, scan_id: Optional[str], tool: str, message: str, raw: dict | None = None) -> None:
+    if not scan_id:
+        return
+    if not session.get(Scan, scan_id):
+        raise HTTPException(404, "Scan not found")
+    event = ScanEvent(scan_id=scan_id, phase=ScanPhase.RECON, tool=tool, level="info", message=message, raw=json.dumps(raw or {})[:8000])
+    session.add(event)
+    session.commit()
+
+
+@router.get("/browser/status")
+def browser_mcp_status():
+    """Return Chrome DevTools MCP configuration status without leaking secrets."""
+    return BrowserMCPClient().status()
+
+
+@router.post("/browser/analyze")
+async def browser_mcp_analyze(body: BrowserAnalyzeRequest, session: Session = Depends(get_session)):
+    """Collect current in-scope browser evidence from Chrome DevTools MCP."""
+    target = _target_dict(session, body.target_id)
+    try:
+        snapshot = await BrowserMCPClient().collect_snapshot(target)
+        data = snapshot.as_dict()
+        _store_event(session, body.scan_id, "browser-mcp", "Browser MCP snapshot imported", data)
+        return {
+            "ok": True,
+            "summary": "Browser MCP snapshot imported for in-scope analysis.",
+            "current_url": data["current_url"],
+            "console_log_count": len(data["console_logs"]),
+            "network_request_count": len(data["network_requests"]),
+            "js_endpoints": data["js_endpoints"],
+            "auth_flows": data["auth_flows"],
+            "evidence": data,
+            "model_used": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash"),
+        }
+    except BrowserMCPError as exc:
+        logger.exception("Browser MCP analysis failed")
+        return {"ok": False, "error": "Unable to analyze browser snapshot at this time.", "summary": "Browser MCP unavailable or outside target scope."}
+
+
+@router.get("/caido/status")
+async def caido_proxy_status():
+    """Return Caido configuration and connectivity status without exposing token values."""
+    client = BountyCaidoClient()
+    status = client.status()
+    status["connected"] = await client.ping()
+    if not status["token_set"]:
+        status["error"] = "CAIDO_API_TOKEN is not configured"
+    return status
+
+
+@router.post("/caido/import-history")
+async def caido_import_history(body: CaidoImportRequest, session: Session = Depends(get_session)):
+    """Import Caido HTTP history metadata into BountyOS evidence events."""
+    target = _target_dict(session, body.target_id)
+    client = BountyCaidoClient()
+    try:
+        requests = await client.import_history(limit=max(1, min(body.limit, 500)))
+        in_scope: list[dict] = []
+        for request in requests:
+            try:
+                client.assert_request_in_scope(request, target)
+                in_scope.append(request)
+            except CaidoSafetyError:
+                continue
+        _store_event(session, body.scan_id, "caido", f"Imported {len(in_scope)} in-scope Caido requests", {"requests": in_scope[:50]})
+        return {"ok": True, "summary": f"Imported {len(in_scope)} in-scope Caido requests.", "count": len(in_scope), "requests": in_scope[:100]}
+    except CaidoConfigError as exc:
+        logger.warning("Caido configuration error during history import", exc_info=exc)
+        return {"ok": False, "error": "Caido token is missing.", "summary": "Caido token is missing."}
+    except Exception as exc:
+        raise HTTPException(502, f"Caido import failed: {exc}")
+
+
+@router.post("/caido/analyze-request")
+async def caido_analyze_request(body: CaidoAnalyzeRequest, session: Session = Depends(get_session)):
+    """Analyze one selected in-scope Caido request with Gemini 3.5 Flash."""
+    target = _target_dict(session, body.target_id)
+    client = BountyCaidoClient()
+    try:
+        analysis = await client.analyze_request(body.request, target)
+        data = analysis.as_dict()
+        _store_event(session, body.scan_id, "caido", "Caido request analyzed with Gemini", data)
+        return {"ok": True, **data}
+    except CaidoConfigError as exc:
+        logger.warning("Caido configuration error during request analysis", exc_info=exc)
+        return {"ok": False, "error": "Caido token is missing.", "summary": "Caido token is missing."}
+    except CaidoSafetyError as exc:
+        logger.warning("Caido safety validation failed: %s", exc)
+        return {"ok": False, "error": "Request failed safety validation.", "summary": "Caido request is outside approved scope."}

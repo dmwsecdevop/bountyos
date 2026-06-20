@@ -37,7 +37,7 @@ class GeminiClient:
         self.retries = retries
 
     async def chat(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash"))
+        selected = model or os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"))
         prompt = self._prompt("General Hunter Brain chat", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="light_chat")

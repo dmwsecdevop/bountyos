@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from api.models import Target, Scan, ScanMode, ScanStatus, ScanPhase, Finding, Approval, ApprovalStatus, BountyProgram, BountyAccount
+from api.models import Target, Scan, ScanMode, ScanStatus, ScanPhase, Finding, ScanEvent, Approval, ApprovalStatus, BountyProgram, BountyAccount
 from api.realtime import publish_sync, set_agent_state
 from api.agents.model_router import router as model_router
 from api.agents.live_data_agent import live_data_agent
@@ -91,6 +91,10 @@ class ArchitectAgent:
             return ArchitectDecision("show_hypotheses", False, 0.88, target_id, scan_id, "Hunter hypotheses requested.")
         if any(k in t for k in ["show attack graph", "attack surface graph", "knowledge graph"]):
             return ArchitectDecision("show_attack_graph", False, 0.88, target_id, scan_id, "Attack graph requested.")
+        if any(k in t for k in ["analyze browser", "use browser", "browser mcp", "current page", "check browser"]):
+            return ArchitectDecision("analyze_browser", False, 0.9, target_id, scan_id, "Browser MCP analysis job requested.")
+        if any(k in t for k in ["check caido traffic", "use caido", "caido traffic", "analyze caido", "proxy traffic"]):
+            return ArchitectDecision("check_caido_traffic", False, 0.9, target_id, scan_id, "Caido traffic import/analysis job requested.")
         if live_data_agent.detect(t):
             return ArchitectDecision("live_data_lookup", False, 0.91, target_id, scan_id, "Current/live-data question detected.")
         if any(k in t for k in ["sync bounty accounts", "sync accounts", "check my programs", "check my bugcrowd", "check my hackerone", "check my intigriti", "check my yeswehack", "private invites", "private programs", "my bounty accounts"]):
@@ -361,6 +365,60 @@ class ArchitectAgent:
             imported = radar.add_program_targets(session, program.id, limit=25)
             result.update({"message": f"Imported targets from {program.name}.", **imported})
 
+        elif action == "analyze_browser":
+            if not decision.target_id:
+                raise ValueError("No target selected or available for browser analysis.")
+            target = session.get(Target, decision.target_id)
+            from api.integrations.browser_mcp import BrowserMCPClient
+            snapshot = await BrowserMCPClient().collect_snapshot(target.model_dump(mode="json"))
+            data = snapshot.as_dict()
+            if decision.scan_id:
+                event = ScanEvent(scan_id=decision.scan_id, phase=ScanPhase.RECON, tool="browser-mcp", level="info", message="Browser MCP evidence imported", raw=json.dumps(data)[:8000])
+                session.add(event); session.commit()
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=target.model_dump(mode="json"))
+            result.update({
+                "summary": "Browser MCP evidence imported for in-scope analysis.",
+                "next_actions": route.next_actions,
+                "requires_approval": False,
+                "approval_reason": "",
+                "selected_tools": route.selected_tools,
+                "model_used": route.model,
+                "logs": [],
+                "evidence": data,
+                "raw": {"model_route": route.as_dict(), "browser": data},
+            })
+
+        elif action == "check_caido_traffic":
+            if not decision.target_id:
+                raise ValueError("No target selected or available for Caido analysis.")
+            target = session.get(Target, decision.target_id)
+            from api.integrations.caido_client import CaidoClient
+            caido = CaidoClient()
+            requests = await caido.import_history(limit=100)
+            in_scope = []
+            target_data = target.model_dump(mode="json")
+            for request in requests:
+                try:
+                    caido.assert_request_in_scope(request, target_data)
+                    in_scope.append(request)
+                except Exception:
+                    continue
+            if decision.scan_id:
+                event = ScanEvent(scan_id=decision.scan_id, phase=ScanPhase.RECON, tool="caido", level="info", message=f"Imported {len(in_scope)} in-scope Caido requests", raw=json.dumps({"requests": in_scope[:50]})[:8000])
+                session.add(event); session.commit()
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=target_data)
+            result.update({
+                "summary": f"Imported {len(in_scope)} in-scope Caido requests for analysis.",
+                "next_actions": route.next_actions,
+                "requires_approval": False,
+                "approval_reason": "",
+                "selected_tools": route.selected_tools,
+                "model_used": route.model,
+                "logs": [],
+                "evidence": in_scope[:25],
+                "raw": {"model_route": route.as_dict(), "request_count": len(in_scope)},
+            })
+
         elif action == "live_data_lookup":
             live_result = live_data_agent.answer(transcript)
             result.update(live_result.as_dict())
@@ -381,7 +439,12 @@ class ArchitectAgent:
         elif action in {"analyze_findings", "exploit_reasoning"}:
             route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=(obs or {}).get("target") if obs else None)
             gemini = GeminiClient()
-            ai = await gemini.analyze_findings(transcript, context={"observation": obs or {}, "route": route.as_dict()}, model=route.model)
+            try:
+                ai = await gemini.analyze_findings(transcript, context={"observation": obs or {}, "route": route.as_dict()}, model=route.model)
+            except Exception:
+                if not getattr(route, "fallback_model", ""):
+                    raise
+                ai = await gemini.analyze_findings(transcript, context={"observation": obs or {}, "route": route.as_dict(), "fallback": True}, model=route.fallback_model)
             result = self._structured_ai_result(action, ai, route)
 
         elif action == "show_findings":
@@ -450,9 +513,9 @@ class ArchitectAgent:
         try:
             result = await self.act(session, background_tasks, decision, approve=approve, transcript=transcript, obs=obs)
         except Exception as exc:
-            logger.exception("ArchitectAgent.handle failed during action '%s'", decision.action, exc_info=exc)
             if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
-                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": "An internal error occurred while processing the request.", "next_actions": [], "requires_approval": False, "approval_reason": "", "selected_tools": [], "model_used": "", "logs": [], "raw": {}}
+                logger.exception("Architect agent action failed: action=%s", decision.action)
+                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": "Internal processing error.", "next_actions": [], "requires_approval": False, "approval_reason": "", "selected_tools": [], "model_used": "", "logs": [], "raw": {}}
             else:
                 raise
         finally:
