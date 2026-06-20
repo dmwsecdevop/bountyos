@@ -1,124 +1,285 @@
 import React, {useEffect, useMemo, useState} from 'react';
 
 const API = '/api/v1';
-const NAV = ['Dashboard','Hunter Brain','Targets','Scans','Findings','Runners','Knowledge Graph','Reports','Settings'];
+const emptyMessage = {
+  summary: '',
+  actions: [],
+  logs: [],
+  raw: null,
+  evidence: [],
+  scan_id: null,
+  target_id: null,
+  planner: null,
+  events: [],
+};
 
-async function api(path, options={}){
-  const res = await fetch(API + path, {headers:{'Content-Type':'application/json', ...(options.headers||{})}, ...options});
+async function api(path, options = {}) {
+  const res = await fetch(API + path, {
+    headers: {'Content-Type': 'application/json', ...(options.headers || {})},
+    ...options,
+  });
   const text = await res.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = {raw:text}; }
-  if(!res.ok){
-    const detail = data?.detail || data?.message || data?.error || `${res.status} ${res.statusText}`;
-    const err = new Error(detail); err.status = res.status; throw err;
+  try { data = text ? JSON.parse(text) : null; } catch { data = {text}; }
+  if (!res.ok) {
+    const message = data?.detail || data?.message || data?.error || `${res.status} ${res.statusText}`;
+    const err = new Error(message);
+    err.status = res.status;
+    err.payload = data;
+    throw err;
   }
   return data;
 }
-const trim = (v,n=120)=>String(v||'').length>n ? String(v).slice(0,n).trim()+'…' : String(v||'');
-const when = v => v ? String(v).replace('T',' ').slice(0,19) : '—';
 
-function Badge({children,tone='cyan'}){ return <span className={`badge ${tone}`}>{children}</span>; }
-function Card({title, action, children, className=''}){ return <section className={`card ${className}`}><div className="card-title"><h2>{title}</h2>{action}</div>{children}</section>; }
-function Stat({label,value,tone='cyan'}){ return <div className="stat"><strong className={tone}>{value}</strong><span>{label}</span></div>; }
-function Empty({children}){ return <div className="empty">{children}</div>; }
-function Details({value}){ return value ? <details className="details"><summary>Show details</summary><pre>{JSON.stringify(value,null,2)}</pre></details> : null; }
+const shortId = value => value ? String(value).slice(0, 8) : '—';
+const truncate = (value, max = 220) => {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+  return text.length > max ? `${text.slice(0, max).trim()}…` : text;
+};
+const asList = value => Array.isArray(value) ? value : value ? [value] : [];
 
-function useData(){
-  const [data,setData] = useState({targets:[],scans:[],findings:[],live:null,runners:null,models:null,upgrades:null});
-  const [error,setError] = useState('');
-  const refresh = async()=>{
-    try{
-      const [targets,scans,findings,live,runners,models,upgrades] = await Promise.all([
-        api('/targets/').catch(()=>[]), api('/scans/').catch(()=>[]), api('/findings/').catch(()=>[]),
-        api('/live/snapshot').catch(()=>null), api('/runners/capabilities').catch(()=>null),
-        api('/ai/models').catch(()=>null), api('/upgrades/').catch(()=>null),
-      ]);
-      setData({targets,scans,findings,live,runners,models,upgrades}); setError('');
-    }catch(e){ setError(e.message); }
+function normalizeResponse(data, fallbackSummary = 'Done.') {
+  const act = data?.act || data || {};
+  const scanId = act.scan_id || data?.scan_id || data?.reason?.scan_id || null;
+  const targetId = act.target_id || data?.target_id || data?.reason?.target_id || null;
+  const findings = asList(act.findings || data?.findings);
+  const rawLogs = asList(act.logs || data?.logs || act.output || data?.output);
+  const events = asList(act.events || data?.events || data?.scan_events);
+  return {
+    ...emptyMessage,
+    summary: act.response || act.message || data?.summary || data?.message || data?.response || fallbackSummary,
+    actions: asList(act.actions || data?.actions),
+    logs: rawLogs.map(item => typeof item === 'string' ? item : JSON.stringify(item, null, 2)),
+    evidence: asList(act.evidence || data?.evidence || findings),
+    planner: data?.think || act.planner || data?.planner || null,
+    raw: data,
+    scan_id: scanId,
+    target_id: targetId,
+    events,
   };
-  useEffect(()=>{ refresh(); const id=setInterval(refresh,5000); return()=>clearInterval(id); },[]);
-  return {...data,error,refresh};
 }
 
-function HunterBrain({targets, scans, refresh}){
-  const [text,setText] = useState('');
-  const [targetId,setTargetId] = useState('');
-  const [scanId,setScanId] = useState('');
-  const [busy,setBusy] = useState(false);
-  const [notice,setNotice] = useState('Ready. Paste a scope page or ask for recon.');
-  const [messages,setMessages] = useState([{role:'system', text:'Hunter Brain ready for Gemini-powered recon workflow.'}]);
-  const [extracted,setExtracted] = useState(null);
-  const selectedTarget = targets.find(t=>t.id===targetId);
-  const add = (role, msg, details=null)=>setMessages(m=>[...m,{role,text:msg,details,ts:new Date().toISOString()}].slice(-24));
-  const run = async(label, fn)=>{ setBusy(true); setNotice(`${label}...`); try{ await fn(); } finally{ setBusy(false); await refresh?.(); } };
-  const send = ()=>run('Sending command', async()=>{
-    if(!text.trim()) return setNotice('Type a command first.');
-    add('user', text);
-    try{
-      const res = await api('/agent/command',{method:'POST',body:JSON.stringify({transcript:text,selected_target_id:targetId||null,selected_scan_id:scanId||null,source:'dashboard'})});
-      add('assistant', res?.act?.message || res?.response || res?.message || 'Command completed.', res); setNotice('Command completed.');
-    }catch(e){ add('assistant', e.status===404?'Backend endpoint not available':`Command failed: ${e.message}`); setNotice(e.status===404?'Backend endpoint not available':e.message); }
-  });
-  const extract = ()=>run('Extracting target', async()=>{
-    if(!text.trim()) return setNotice('Paste target/scope text first.');
-    add('user', text);
-    try{
-      const res = await api('/ai/extract-target-page',{method:'POST',body:JSON.stringify({text})});
-      setExtracted(res); add('assistant', res.summary || 'Target extracted.', res); setNotice('Target extraction complete.');
-    }catch(e){ const msg=e.status===404?'Backend endpoint not available':'Extraction failed: '+e.message; add('assistant', msg); setNotice(msg); }
-  });
-  const createTarget = ()=>run('Creating target', async()=>{
-    const domain = (extracted?.in_scope_domains||[])[0] || extracted?.primary_domain || text.trim().split(/\s+/)[0];
-    if(!domain) return setNotice('No domain found. Paste a domain or extract a target first.');
-    try{
-      const res = await api('/targets/',{method:'POST',body:JSON.stringify({name:extracted?.program_name||domain,domain,scope:(extracted?.in_scope_domains||[]).join('\n')||domain,out_of_scope:(extracted?.out_of_scope||[]).join('\n'),notes:extracted?.rules_summary||'Created from dashboard'})});
-      setTargetId(res.id); add('assistant',`Target created: ${res.domain}`,res); setNotice('Target created.');
-    }catch(e){ const msg=e.status===404?'Backend endpoint not available':'Create target failed: '+e.message; add('assistant', msg); setNotice(msg); }
-  });
-  const passiveScan = ()=>run('Starting passive scan', async()=>{
-    if(!targetId) return setNotice('Select or create a target first.');
-    try{
-      const config = JSON.stringify({execution_mode:'hybrid',source:'v6_dashboard',profile:'passive'});
-      const res = await api('/scans/',{method:'POST',body:JSON.stringify({target_id:targetId,mode:'passive',config})});
-      setScanId(res.id); add('assistant',`Passive scan started: ${res.id.slice(0,8)}`,res); setNotice('Passive scan started.');
-    }catch(e){ const msg=e.status===404?'Backend endpoint not available':'Start scan failed: '+e.message; add('assistant', msg); setNotice(msg); }
-  });
-  return <Card title="Hunter Brain" className="hunter" action={<Badge tone={busy?'amber':'green'}>{busy?'Working':'Ready'}</Badge>}>
-    <div className="notice">{notice}</div>
-    <div className="context-row"><select value={targetId} onChange={e=>setTargetId(e.target.value)}><option value="">Select target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name||t.domain}</option>)}</select><select value={scanId} onChange={e=>setScanId(e.target.value)}><option value="">Select scan</option>{scans.map(s=><option key={s.id} value={s.id}>{s.id.slice(0,8)} · {s.status}</option>)}</select></div>
-    {selectedTarget&&<div className="selected-target"><b>{selectedTarget.domain}</b><span>{trim(selectedTarget.scope,160)}</span></div>}
-    <div className="chat-window">{messages.map((m,i)=><div key={i} className={`chat-msg ${m.role}`}><b>{m.role}</b><p>{m.text}</p><Details value={m.details}/></div>)}</div>
-    <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Paste a target page, ask for recon, or review findings..." />
-    <div className="button-row"><button className="primary" onClick={send} disabled={busy}>Send</button><button onClick={extract} disabled={busy}>Extract Target</button><button onClick={passiveScan} disabled={busy}>Run Passive Scan</button><button onClick={createTarget} disabled={busy}>Create Target</button></div>
-  </Card>;
+function Badge({children, tone = 'neutral'}) { return <span className={`badge ${tone}`}>{children}</span>; }
+function PillButton({children, ...props}) { return <button className="pill-button" {...props}>{children}</button>; }
+
+function Expanders({message}) {
+  const groups = [
+    ['Show execution logs', message.logs],
+    ['Show raw JSON', message.raw],
+    ['Show planner details', message.planner],
+    ['Show scan events', message.events],
+    ['Show evidence', message.evidence],
+  ];
+  return <div className="expanders">
+    {groups.map(([label, value]) => {
+      const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(value);
+      if (!hasValue) return null;
+      return <details key={label}>
+        <summary>{label}</summary>
+        <pre>{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</pre>
+      </details>;
+    })}
+  </div>;
 }
 
-function Activity({live}){
-  const events = [...(live?.live_events||[]), ...(live?.recent_scan_events||[]).map(e=>({type:e.level,message:e.message,created_at:e.created_at}))].slice(-8).reverse();
-  return <Card title="Recent Activity" action={<Badge>{events.length} latest</Badge>}><div className="activity-list">{events.map((e,i)=><div className="activity" key={i}><span>{when(e.created_at)}</span><b>{e.type||'event'}</b><p>{trim(e.message||e.payload?.message||e.payload||e,150)}</p></div>)}{!events.length&&<Empty>No live activity yet.</Empty>}</div></Card>;
-}
-function RunnerCard({runners,onRefresh}){ const online=runners?.online||[]; const first=online[0]; return <Card title="Runner Status" action={<button className="mini" onClick={onRefresh}>Refresh Runner</button>}><div className="status-line"><span className={`dot ${online.length?'on':'off'}`}/><div><b>{online.length?'Runner online':'No runner online'}</b><p>{first?.name||'Start scripts/start-local-runner.sh'}</p></div></div><div className="mini-grid"><Stat label="online" value={online.length} tone={online.length?'green':'red'}/><Stat label="mode" value={runners?.current_mode||'hybrid'}/><Stat label="tools" value={first?.tool_count||Object.keys(first?.tools||{}).length||0}/></div></Card>; }
-function ModelCard({models}){ return <Card title="AI Model"><div className="model-lines"><p><span>Provider</span><b>{models?.provider||'gemini'}</b></p><p><span>Main</span><b>{models?.main_model||'gemini-2.5-pro'}</b></p><p><span>Recon</span><b>{models?.recon_model||'gemini-2.5-flash'}</b></p><p><span>Vertex</span><b>{models?.vertex?'enabled':'off'}</b></p></div></Card>; }
-function ListCard({title,items,type}){ return <Card title={title} action={<Badge>{items.length}</Badge>}><div className="list">{items.slice(0,8).map(item=><div className="list-row" key={item.id}><b>{type==='target'?(item.name||item.domain):type==='scan'?item.id.slice(0,8):trim(item.title,70)}</b><span>{type==='target'?item.domain:type==='scan'?`${item.mode} · ${item.status}`:`${item.severity} · ${item.tool||'unknown'}`}</span></div>)}{!items.length&&<Empty>No {title.toLowerCase()} yet.</Empty>}</div></Card>; }
-
-function Page({active,data,refresh}){
-  const {targets,scans,findings,live,runners,models,upgrades}=data;
-  if(active==='Hunter Brain') return <HunterBrain targets={targets} scans={scans} refresh={refresh}/>;
-  if(active==='Targets') return <ListCard title="Targets" items={targets} type="target"/>;
-  if(active==='Scans') return <ListCard title="Scans" items={scans} type="scan"/>;
-  if(active==='Findings') return <ListCard title="Findings" items={findings} type="finding"/>;
-  if(active==='Runners') return <RunnerCard runners={runners} onRefresh={refresh}/>;
-  if(active==='Knowledge Graph') return <Card title="Knowledge Graph"><p className="plain">Knowledge graph is available through backend modules and appears as scan intelligence is collected.</p><Details value={upgrades?.modules}/></Card>;
-  if(active==='Reports') return <Card title="Reports"><p className="plain">Report builder stays connected to findings and quality agents. Select findings from the Findings page before drafting.</p></Card>;
-  if(active==='Settings') return <Card title="Settings"><div className="settings"><Details value={models}/><Details value={upgrades}/></div></Card>;
-  return <>
-    <div className="top-grid"><RunnerCard runners={runners} onRefresh={refresh}/><ModelCard models={models}/><div className="stats-grid"><Stat label="targets" value={targets.length}/><Stat label="scans" value={scans.length}/><Stat label="findings" value={findings.length}/><Stat label="critical/high" value={findings.filter(f=>['critical','high'].includes(String(f.severity).toLowerCase())).length} tone="red"/></div></div>
-    <div className="main-grid"><HunterBrain targets={targets} scans={scans} refresh={refresh}/><Activity live={live}/></div>
-  </>;
+function ChatMessage({message}) {
+  return <article className={`message ${message.role}`}>
+    <div className="message-meta">
+      <span>{message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : 'Hunter Brain'}</span>
+      {message.model && <Badge>{message.model}</Badge>}
+    </div>
+    <div className="message-body">{message.summary}</div>
+    {message.actions?.length > 0 && <div className="action-strip">{message.actions.map((a, i) => <Badge key={i} tone="cyan">{a.label || a.name || String(a)}</Badge>)}</div>}
+    {message.scan_id && <div className="task-chip">Scan <b>{shortId(message.scan_id)}</b></div>}
+    <Expanders message={message}/>
+  </article>;
 }
 
-export default function App(){
-  const [active,setActive] = useState('Dashboard');
-  const data = useData();
-  return <div className="shell"><aside className="sidebar"><div className="logo"><span>B6</span><div><b>BountyOS v6</b><small>Personal command center</small></div></div><nav>{NAV.map(n=><button key={n} className={active===n?'active':''} onClick={()=>setActive(n)}>{n}</button>)}</nav></aside><main className="content"><header className="header"><div><p>Workspace</p><h1>{active}</h1></div><div className="header-badges"><Badge tone="green">Gemini/Vertex</Badge><Badge tone={(data.runners?.online||[]).length?'green':'red'}>{(data.runners?.online||[]).length?'Runner online':'Runner offline'}</Badge><Badge tone={data.error?'amber':'cyan'}>{data.error?'API warning':'API live'}</Badge></div></header>{data.error&&<div className="banner">{data.error}</div>}<Page active={active} data={data} refresh={data.refresh}/></main></div>;
+function StatusCard({title, children, action}) {
+  return <section className="status-card">
+    <div className="status-title"><h3>{title}</h3>{action}</div>
+    {children}
+  </section>;
+}
+
+function useOpsData() {
+  const [data, setData] = useState({targets: [], scans: [], findings: [], live: null, runners: null, models: null});
+  const [error, setError] = useState('');
+  const refresh = async () => {
+    const [targets, scans, findings, live, runners, models] = await Promise.all([
+      api('/targets/').catch(() => []),
+      api('/scans/').catch(() => []),
+      api('/findings/').catch(() => []),
+      api('/live/snapshot').catch(() => null),
+      api('/runners/capabilities').catch(() => null),
+      api('/ai/models').catch(() => null),
+    ]);
+    setData({targets, scans, findings, live, runners, models});
+    setError('');
+  };
+  useEffect(() => {
+    refresh().catch(e => setError(e.message));
+    const id = setInterval(() => refresh().catch(e => setError(e.message)), 4500);
+    return () => clearInterval(id);
+  }, []);
+  return {...data, error, refresh};
+}
+
+function Sidebar({data, selectedTargetId, selectedScanId, onSelectTarget, onSelectScan, onRefresh}) {
+  const online = data.runners?.online || [];
+  const runner = online[0];
+  const selectedTarget = data.targets.find(t => t.id === selectedTargetId) || data.targets[0];
+  const selectedScan = data.scans.find(s => s.id === selectedScanId) || data.scans[0];
+  const tools = runner?.tool_count || Object.keys(runner?.tools || {}).length || 0;
+  return <aside className="right-rail">
+    <StatusCard title="System" action={<PillButton onClick={onRefresh}>Refresh</PillButton>}>
+      <div className="signal-row"><span className={`signal ${online.length ? 'on' : 'off'}`}/><div><b>{online.length ? 'Runner online' : 'Runner offline'}</b><small>{runner?.name || 'Start local runner'}</small></div></div>
+      <div className="mini-stats"><div><b>{tools}</b><span>tools</span></div><div><b>{data.models?.provider || 'gemini'}</b><span>AI</span></div><div><b>{data.models?.light_model || 'flash-lite'}</b><span>chat</span></div></div>
+    </StatusCard>
+
+    <StatusCard title="Active Target">
+      <select value={selectedTargetId} onChange={e => onSelectTarget(e.target.value)}>
+        <option value="">No target selected</option>
+        {data.targets.map(t => <option key={t.id} value={t.id}>{t.name || t.domain}</option>)}
+      </select>
+      <div className="compact-copy"><b>{selectedTarget?.domain || 'No target yet'}</b><span>{truncate(selectedTarget?.scope || 'Create or select a target to run recon.', 140)}</span></div>
+    </StatusCard>
+
+    <StatusCard title="Scan Status">
+      <select value={selectedScanId} onChange={e => onSelectScan(e.target.value)}>
+        <option value="">No scan selected</option>
+        {data.scans.map(s => <option key={s.id} value={s.id}>{shortId(s.id)} · {s.status}</option>)}
+      </select>
+      <div className="compact-copy"><b>{selectedScan ? `${selectedScan.mode || 'scan'} · ${selectedScan.status}` : 'Idle'}</b><span>{selectedScan ? `Phase ${selectedScan.phase || 'queued'} · ${shortId(selectedScan.id)}` : 'Start passive recon from chat actions.'}</span></div>
+    </StatusCard>
+
+    <StatusCard title="Findings">
+      <div className="finding-stack">
+        {data.findings.slice(0, 4).map(f => <div className="finding-card" key={f.id}><Badge tone={String(f.severity).toLowerCase()}>{f.severity || 'info'}</Badge><b>{truncate(f.title, 72)}</b><small>{f.tool || 'unknown tool'}</small></div>)}
+        {!data.findings.length && <p className="muted">No parsed findings yet.</p>}
+      </div>
+    </StatusCard>
+  </aside>;
+}
+
+function LogsDrawer({open, live}) {
+  const events = useMemo(() => {
+    const liveEvents = asList(live?.live_events).map(e => ({kind: e.type || 'live', message: e.message || e.payload?.message || e.payload || e, time: e.created_at}));
+    const scanEvents = asList(live?.recent_scan_events).map(e => ({kind: e.level || e.tool || 'scan', message: e.message, time: e.created_at}));
+    return [...liveEvents, ...scanEvents].slice(-30).reverse();
+  }, [live]);
+  return <section className={`logs-drawer ${open ? 'open' : ''}`}>
+    <div className="drawer-handle"><span>Live logs</span><Badge>{events.length}</Badge></div>
+    <div className="log-list">
+      {events.map((event, i) => <div className="log-row" key={i}><span>{event.kind}</span><p>{truncate(event.message, 180)}</p></div>)}
+      {!events.length && <p className="muted">No live logs yet.</p>}
+    </div>
+  </section>;
+}
+
+export default function App() {
+  const data = useOpsData();
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [selectedTargetId, setSelectedTargetId] = useState('');
+  const [selectedScanId, setSelectedScanId] = useState('');
+  const chatRef = useRef(null);
+  const [messages, setMessages] = useState([
+    {...emptyMessage, role: 'system', summary: 'BountyOS v6 Hunter Brain is ready. Ask for recon, paste a target page, or review findings. Raw execution data stays collapsed until you ask for it.'},
+  ]);
+
+  useEffect(() => { chatRef.current?.scrollTo({top: chatRef.current.scrollHeight, behavior: 'smooth'}); }, [messages]);
+
+  const push = (message) => setMessages(prev => [...prev, {ts: new Date().toISOString(), ...message}].slice(-40));
+  const runAction = async (label, fn) => {
+    setBusy(true);
+    try { await fn(); }
+    catch (e) {
+      const summary = e.status === 404 ? 'Backend endpoint not available.' : `${label} failed: ${e.message}`;
+      push({...emptyMessage, role: 'assistant', summary, raw: e.payload || {error: e.message, status: e.status}});
+    } finally {
+      setBusy(false);
+      data.refresh().catch(() => {});
+    }
+  };
+
+  const send = () => runAction('Send', async () => {
+    if (!text.trim()) return push({...emptyMessage, role: 'assistant', summary: 'Type a message first.'});
+    const transcript = text;
+    push({...emptyMessage, role: 'user', summary: transcript});
+    setText('');
+    const res = await api('/agent/command', {method: 'POST', body: JSON.stringify({transcript, selected_target_id: selectedTargetId || null, selected_scan_id: selectedScanId || null, source: 'dashboard'})});
+    const normalized = normalizeResponse(res, 'Command completed.');
+    if (normalized.target_id) setSelectedTargetId(normalized.target_id);
+    if (normalized.scan_id) setSelectedScanId(normalized.scan_id);
+    push({role: 'assistant', model: normalized.raw?.act?.model, ...normalized});
+  });
+
+  const createTarget = () => runAction('Create target', async () => {
+    const domain = text.trim().split(/\s+/)[0]?.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (!domain) return push({...emptyMessage, role: 'assistant', summary: 'Paste a domain or URL first, then create a target.'});
+    const res = await api('/targets/', {method: 'POST', body: JSON.stringify({name: domain, domain, scope: domain, notes: 'Created from Hunter Brain console'})});
+    setSelectedTargetId(res.id);
+    push({role: 'assistant', ...normalizeResponse(res, `Target created: ${res.domain || domain}`), target_id: res.id});
+  });
+
+  const extractTarget = () => runAction('Extract target', async () => {
+    if (!text.trim()) return push({...emptyMessage, role: 'assistant', summary: 'Paste target-page text first.'});
+    push({...emptyMessage, role: 'user', summary: text});
+    const res = await api('/ai/extract-target-page', {method: 'POST', body: JSON.stringify({text})});
+    push({role: 'assistant', ...normalizeResponse(res, 'Target page extracted.')});
+  });
+
+  const passiveRecon = () => runAction('Run passive recon', async () => {
+    if (!selectedTargetId) return push({...emptyMessage, role: 'assistant', summary: 'Select or create a target before starting passive recon.'});
+    const res = await api('/scans/', {method: 'POST', body: JSON.stringify({target_id: selectedTargetId, mode: 'passive', config: JSON.stringify({source: 'hunter_brain_console', execution_mode: 'hybrid'})})});
+    setSelectedScanId(res.id);
+    push({role: 'assistant', ...normalizeResponse(res, `Passive recon started for target ${shortId(selectedTargetId)}. Task progress and logs will appear below.`), scan_id: res.id, target_id: selectedTargetId});
+  });
+
+  const approveActive = () => runAction('Approve active scan', async () => {
+    const transcript = text.trim() || 'Run approved active scan for the selected target';
+    if (!selectedTargetId) return push({...emptyMessage, role: 'assistant', summary: 'Select a target before approving active scan actions.'});
+    const res = await api('/agent/command', {method: 'POST', body: JSON.stringify({transcript, selected_target_id: selectedTargetId, selected_scan_id: selectedScanId || null, approve: true, source: 'dashboard'})});
+    const normalized = normalizeResponse(res, 'Approved active action submitted.');
+    if (normalized.scan_id) setSelectedScanId(normalized.scan_id);
+    push({role: 'assistant', ...normalized});
+  });
+
+  return <div className="ops-shell">
+    <main className="chat-panel">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">BountyOS v6</p>
+          <h1>Hunter Brain</h1>
+        </div>
+        <div className="topbar-badges">
+          <Badge tone={(data.runners?.online || []).length ? 'green' : 'red'}>{(data.runners?.online || []).length ? 'runner online' : 'runner offline'}</Badge>
+          <Badge tone="cyan">{data.models?.light_model || 'gemini-2.5-flash-lite'}</Badge>
+          <Badge>{data.error ? 'API warning' : 'API live'}</Badge>
+        </div>
+      </header>
+
+      <section className="chat-stream" ref={chatRef}>
+        {messages.map((message, index) => <ChatMessage key={index} message={message}/>)}
+      </section>
+
+      <section className="composer">
+        <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Ask Hunter Brain what to do next, paste a target page, or request recon..." onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}/>
+        <div className="composer-actions">
+          <button className="primary" onClick={send} disabled={busy}>Send</button>
+          <button onClick={passiveRecon} disabled={busy}>Run Passive Recon</button>
+          <button onClick={extractTarget} disabled={busy}>Extract Target</button>
+          <button onClick={createTarget} disabled={busy}>Create Target</button>
+          <button onClick={approveActive} disabled={busy}>Approve Active Scan</button>
+          <button onClick={() => setShowLogs(v => !v)}>Show Logs</button>
+        </div>
+      </section>
+
+      <LogsDrawer open={showLogs} live={data.live}/>
+    </main>
+
+    <Sidebar data={data} selectedTargetId={selectedTargetId} selectedScanId={selectedScanId} onSelectTarget={setSelectedTargetId} onSelectScan={setSelectedScanId} onRefresh={data.refresh}/>
+  </div>;
 }

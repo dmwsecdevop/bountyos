@@ -411,8 +411,8 @@ class ArchitectAgent:
         try:
             result = await self.act(session, background_tasks, decision, approve=approve, transcript=transcript, obs=obs)
         except Exception as exc:
+            logger.exception("Architect agent action failed: action=%s", decision.action)
             if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
-                logger.exception("Architect agent action '%s' failed", decision.action)
                 result = {"ok": False, "provider": "gemini", "error": "An internal error occurred while processing the request."}
             else:
                 raise
