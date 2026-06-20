@@ -1,0 +1,35 @@
+name: Fix model router wrapper
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/fix-model-router.yml'
+      - '.github/router-fix-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-router:
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci: apply model router wrapper') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch model router
+        run: |
+          cat > api/agents/model_router.py <<'PY'
+          """Compatibility wrapper for the clean BountyOS v6 model router."""
+
+          from api.agents.model_router_clean import ExpertRoute, ModelExpertRouter, router
+
+          __all__ = ["ExpertRoute", "ModelExpertRouter", "router"]
+          PY
+      - name: Commit router wrapper
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/agents/model_router.py
+          git diff --cached --quiet && exit 0
+          git commit -m "ci: apply model router wrapper"
+          git push
