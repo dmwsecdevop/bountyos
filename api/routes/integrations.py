@@ -519,4 +519,5 @@ async def caido_analyze_request(body: CaidoAnalyzeRequest, session: Session = De
     except CaidoConfigError as exc:
         return {"ok": False, "error": str(exc), "summary": "Caido token is missing."}
     except CaidoSafetyError as exc:
-        return {"ok": False, "error": str(exc), "summary": "Caido request is outside approved scope."}
+        logger.warning("Caido safety validation failed: %s", exc)
+        return {"ok": False, "error": "Request failed safety validation.", "summary": "Caido request is outside approved scope."}
