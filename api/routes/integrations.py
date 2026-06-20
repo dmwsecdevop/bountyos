@@ -470,7 +470,8 @@ async def browser_mcp_analyze(body: BrowserAnalyzeRequest, session: Session = De
             "model_used": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash"),
         }
     except BrowserMCPError as exc:
-        return {"ok": False, "error": str(exc), "summary": "Browser MCP unavailable or outside target scope."}
+        logger.exception("Browser MCP analysis failed")
+        return {"ok": False, "error": "Unable to analyze browser snapshot at this time.", "summary": "Browser MCP unavailable or outside target scope."}
 
 
 @router.get("/caido/status")
