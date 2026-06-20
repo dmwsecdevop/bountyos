@@ -37,25 +37,25 @@ class GeminiClient:
         self.retries = retries
 
     async def chat(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite")
+        selected = model or os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash"))
         prompt = self._prompt("General Hunter Brain chat", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="light_chat")
 
     async def summarize_scan(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+        selected = model or os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash")
         prompt = self._prompt("Summarize the selected bounty scan with risk, evidence, and next steps", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="recon_summary")
 
     async def analyze_findings(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+        selected = model or os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"))
         prompt = self._prompt("Analyze findings like a senior bug bounty researcher", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="bug_reasoning")
 
     async def write_report(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+        selected = model or os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"))
         prompt = self._prompt("Write a clear bounty report with impact, reproduction, evidence, and remediation", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="report_writing")
@@ -151,9 +151,10 @@ class GeminiClient:
         else:
             conversation = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in transcript)
         return (
-            "You are BountyOS v6 Hunter Brain, a Gemini-only security assistant for an authorized personal bug-bounty workflow.\n"
-            "Follow the ORTA loop: Observe the request and available context, Reason about the safest useful answer, then Answer.\n"
-            "Do not claim to run destructive actions from chat. Require explicit approval for active testing.\n\n"
+            "You are BountyOS v6 Hunter Brain, a Gemini-only autonomous bug bounty operating system for authorized work.\n"
+            "Return concise operational guidance, not chatbot filler or verbose reasoning transcripts.\n"
+            "For exploit validation, use existing evidence, least-intrusive checks first, and request explicit approval before active testing.\n"
+            "Prefer structured summaries with exact next safe actions, selected tools, confidence, impact, and evidence needs.\n\n"
             f"Task: {task}\n\n"
             f"Context:\n{context or {}}\n\n"
             f"Transcript:\n{conversation}\n"

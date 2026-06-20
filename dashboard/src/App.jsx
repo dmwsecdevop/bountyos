@@ -48,7 +48,7 @@ function normalizeResponse(data, fallbackSummary = 'Done.') {
   return {
     ...emptyMessage,
     summary: act.response || act.message || data?.summary || data?.message || data?.response || fallbackSummary,
-    actions: asList(act.actions || data?.actions),
+    actions: asList(act.next_actions || data?.next_actions || act.actions || data?.actions),
     logs: rawLogs.map(item => typeof item === 'string' ? item : JSON.stringify(item, null, 2)),
     evidence: asList(act.evidence || data?.evidence || findings),
     planner: data?.think || act.planner || data?.planner || null,
@@ -213,7 +213,7 @@ export default function App() {
     const normalized = normalizeResponse(res, 'Command completed.');
     if (normalized.target_id) setSelectedTargetId(normalized.target_id);
     if (normalized.scan_id) setSelectedScanId(normalized.scan_id);
-    push({role: 'assistant', model: normalized.raw?.act?.model, ...normalized});
+    push({role: 'assistant', model: normalized.raw?.act?.model_used || normalized.raw?.act?.model, ...normalized});
   });
 
   const createTarget = () => runAction('Create target', async () => {
@@ -256,7 +256,7 @@ export default function App() {
         </div>
         <div className="topbar-badges">
           <Badge tone={(data.runners?.online || []).length ? 'green' : 'red'}>{(data.runners?.online || []).length ? 'runner online' : 'runner offline'}</Badge>
-          <Badge tone="cyan">{data.models?.light_model || 'gemini-2.5-flash-lite'}</Badge>
+          <Badge tone="cyan">{data.models?.chat_model || data.models?.light_model || 'gemini-2.5-flash'}</Badge>
           <Badge>{data.error ? 'API warning' : 'API live'}</Badge>
         </div>
       </header>

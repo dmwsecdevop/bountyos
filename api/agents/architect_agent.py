@@ -131,7 +131,7 @@ class ArchitectAgent:
         return ArchitectDecision("general_chat", False, 0.62, target_id, scan_id, "No direct tool command detected; reply as assistant.")
 
     def think(self, transcript: str, decision: ArchitectDecision, obs: Dict[str, Any]) -> Dict[str, Any]:
-        route = model_router.route(transcript, decision.action, has_scan_context=bool(obs.get("scan")))
+        route = model_router.route(transcript, decision.action, has_scan_context=bool(obs.get("scan")), target_context=obs.get("target"))
         thought = {
             "model_route": route.as_dict(),
             "plan": [
@@ -148,15 +148,42 @@ class ArchitectAgent:
         publish_sync("agent.think", thought)
         return thought
 
+    @staticmethod
+    def _structured_ai_result(action: str, ai: Any, route: Any, *, requires_approval: bool = False, approval_reason: str = "") -> Dict[str, Any]:
+        route_dict = route.as_dict() if hasattr(route, "as_dict") else dict(route or {})
+        return {
+            "action": action,
+            "ok": True,
+            "summary": ai.text,
+            "provider": ai.provider,
+            "response": ai.text,
+            "next_actions": route_dict.get("next_actions", []),
+            "requires_approval": bool(requires_approval or route_dict.get("requires_approval", False)),
+            "approval_reason": approval_reason or route_dict.get("approval_reason", ""),
+            "selected_tools": route_dict.get("selected_tools", []),
+            "model_used": ai.model,
+            "model_route": route_dict,
+            "logs": [],
+            "raw": {"provider": ai.provider, "route": ai.route, "target_profile": route_dict.get("target_profile")},
+        }
+
     async def act(self, session: Session, background_tasks: Any, decision: ArchitectDecision, approve: bool = False, transcript: str = "", obs: Dict[str, Any] | None = None) -> Dict[str, Any]:
         action = decision.action
         result: Dict[str, Any] = {"action": action, "ok": True}
 
         if decision.needs_approval and not approve:
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=(obs or {}).get("target") if obs else None)
             result.update({
                 "ok": False,
+                "summary": "Approval required before active validation can run.",
+                "next_actions": route.next_actions,
                 "requires_approval": True,
-                "message": "This action is active/aggressive. Send again with approve=true to run.",
+                "approval_reason": route.approval_reason or "This action is active/aggressive. Send again with approve=true to run.",
+                "selected_tools": route.selected_tools,
+                "model_used": route.model,
+                "logs": [],
+                "raw": {"decision": decision.as_dict(), "model_route": route.as_dict()},
+                "message": "Approval required before active validation can run.",
                 "decision": decision.as_dict(),
             })
             publish_sync("approval.required", result)
@@ -340,19 +367,22 @@ class ArchitectAgent:
             result["message"] = live_result.answer
 
         elif action == "general_chat":
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=(obs or {}).get("target") if obs else None)
             gemini = GeminiClient()
-            ai = await gemini.chat(transcript, context=obs or {})
-            result.update({"provider": ai.provider, "model": ai.model, "message": ai.text, "response": ai.text, "model_route": {"provider": ai.provider, "model": ai.model, "route": ai.route}})
+            ai = await gemini.chat(transcript, context={"observation": obs or {}, "route": route.as_dict()}, model=route.model)
+            result = self._structured_ai_result(action, ai, route)
 
         elif action == "summarize_scan":
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=(obs or {}).get("target") if obs else None)
             gemini = GeminiClient()
-            ai = await gemini.summarize_scan(transcript, context=obs or {})
-            result.update({"provider": ai.provider, "model": ai.model, "message": ai.text, "response": ai.text, "model_route": {"provider": ai.provider, "model": ai.model, "route": ai.route}})
+            ai = await gemini.summarize_scan(transcript, context={"observation": obs or {}, "route": route.as_dict()}, model=route.model)
+            result = self._structured_ai_result(action, ai, route)
 
         elif action in {"analyze_findings", "exploit_reasoning"}:
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=(obs or {}).get("target") if obs else None)
             gemini = GeminiClient()
-            ai = await gemini.analyze_findings(transcript, context=obs or {})
-            result.update({"provider": ai.provider, "model": ai.model, "message": ai.text, "response": ai.text, "model_route": {"provider": ai.provider, "model": ai.model, "route": ai.route}})
+            ai = await gemini.analyze_findings(transcript, context={"observation": obs or {}, "route": route.as_dict()}, model=route.model)
+            result = self._structured_ai_result(action, ai, route)
 
         elif action == "show_findings":
             q = select(Finding)
@@ -370,7 +400,8 @@ class ArchitectAgent:
             result.update({"message": f"Found {len(targets)} targets.", "targets": [t.model_dump(mode="json") for t in targets[:25]]})
 
         elif action == "parse_target_page":
-            model = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+            route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=(obs or {}).get("target") if obs else None)
+            model = route.model
 
             prompt = (
                 "Extract the following information from the bug bounty target page content:\n"
@@ -388,8 +419,16 @@ class ArchitectAgent:
                 ai = await gemini.summarize_scan(f"{prompt}\n\nCONTENT:\n{transcript}", context=obs or {}, model=model)
                 text = ai.text
                 result.update({
+                    "summary": text,
                     "message": "Target page parsed successfully.",
                     "response": text,
+                    "next_actions": route.next_actions,
+                    "requires_approval": False,
+                    "approval_reason": "",
+                    "selected_tools": route.selected_tools,
+                    "model_used": ai.model,
+                    "logs": [],
+                    "raw": {"target_profile": route.target_profile},
                 })
             except Exception as e:
                 result.update({"ok": False, "message": f"Parsing failed: {e}"})
@@ -411,9 +450,9 @@ class ArchitectAgent:
         try:
             result = await self.act(session, background_tasks, decision, approve=approve, transcript=transcript, obs=obs)
         except Exception as exc:
-            logger.exception("Architect agent action failed: action=%s", decision.action)
+            logger.exception("ArchitectAgent.handle failed during action '%s'", decision.action, exc_info=exc)
             if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
-                result = {"ok": False, "provider": "gemini", "error": "An internal error occurred while processing the request."}
+                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": "An internal error occurred while processing the request.", "next_actions": [], "requires_approval": False, "approval_reason": "", "selected_tools": [], "model_used": "", "logs": [], "raw": {}}
             else:
                 raise
         finally:

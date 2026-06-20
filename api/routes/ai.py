@@ -88,11 +88,17 @@ def get_model_config():
     vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "false").strip().lower()
     return {
         "provider": os.getenv("BOUNTYOS_AI_PROVIDER", "gemini"),
-        "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"),
-        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"),
+        "policy": os.getenv("BOUNTYOS_MODEL_POLICY", "performance"),
+        "chat_model": os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash")),
+        "planner_model": os.getenv("BOUNTYOS_PLANNER_MODEL", "gemini-2.5-flash"),
         "recon_model": os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash"),
-        "aggressive_model": os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", "gemini-2.5-pro"),
+        "parser_model": os.getenv("BOUNTYOS_PARSER_MODEL", "gemini-2.5-flash"),
         "exploit_model": os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"),
+        "validation_model": os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro")),
+        "report_model": os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")),
+        "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"),
+        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash"),
+        "aggressive_model": os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", "gemini-2.5-pro"),
         "vertex": vertex in {"1", "true", "yes", "on"},
     }
 
@@ -137,7 +143,7 @@ async def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
 
     model = selected.model
     if selected.provider in ("local", "tool"):
-        model = os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite")
+        model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash"))
     if selected.expert == "local_recon_expert":
         model = os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash")
     if not model:

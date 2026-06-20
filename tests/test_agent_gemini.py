@@ -7,7 +7,7 @@ from api.integrations.gemini_client import GeminiResult
 class FakeGeminiClient:
     async def chat(self, transcript, *, context=None, model=None):
         assert "hello hunter" in transcript
-        return GeminiResult(provider="gemini", model="gemini-2.5-flash-lite", text="REAL GEMINI OUTPUT", route="light_chat")
+        return GeminiResult(provider="gemini", model="gemini-2.5-flash", text="REAL GEMINI OUTPUT", route="light_chat")
 
     async def summarize_scan(self, transcript, *, context=None, model=None):
         return GeminiResult(provider="gemini", model="gemini-2.5-pro", text="REAL SCAN SUMMARY", route="recon_summary")
@@ -35,8 +35,10 @@ def test_agent_command_calls_gemini_for_general_chat(monkeypatch):
     assert data["reason"]["action"] == "general_chat"
     assert data["act"]["ok"] is True
     assert data["act"]["provider"] == "gemini"
-    assert data["act"]["model"] == "gemini-2.5-flash-lite"
+    assert data["act"]["model_used"] == "gemini-2.5-flash"
+    assert data["act"]["summary"] == "REAL GEMINI OUTPUT"
     assert data["act"]["response"] == "REAL GEMINI OUTPUT"
+    assert "selected_tools" in data["act"]
 
 
 def test_agent_command_returns_gemini_error_without_silent_response(monkeypatch):
@@ -47,4 +49,7 @@ def test_agent_command_returns_gemini_error_without_silent_response(monkeypatch)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["act"] == {"ok": False, "provider": "gemini", "error": "gemini exploded"}
+    assert data["act"]["ok"] is False
+    assert data["act"]["provider"] == "gemini"
+    assert data["act"]["error"] == "gemini exploded"
+    assert data["act"]["summary"] == "Gemini request failed."

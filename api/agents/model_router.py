@@ -1,12 +1,8 @@
-"""
-Mixture-of-Models / Experts router for BountyOS.
+"""Performance-first Smart Model Router for BountyOS v6.
 
-Goal:
-- local/light heuristic expert for recon, summaries, command parsing
-- main model for high-value bug reasoning after scan data exists
-- exploit/validation expert for approved active validation planning
-
-This module chooses the expert; it does not add new target-scope enforcement.
+The router optimizes for high-impact bug discovery while preserving BountyOS'
+safety model: active/intrusive validation requires explicit approval and exploit
+reasoning must be evidence-driven.
 """
 
 from __future__ import annotations
@@ -14,6 +10,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Optional
+
+
+FLASH_DEFAULT = "gemini-2.5-flash"
+PRO_DEFAULT = "gemini-2.5-pro"
 
 
 @dataclass
@@ -24,6 +24,12 @@ class ExpertRoute:
     workload: str
     reason: str
     max_tokens: int
+    policy: str
+    target_profile: str
+    selected_tools: list[str]
+    next_actions: list[str]
+    requires_approval: bool = False
+    approval_reason: str = ""
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -31,104 +37,217 @@ class ExpertRoute:
 
 class ModelExpertRouter:
     def __init__(self) -> None:
-        self.local_model = os.getenv("BOUNTYOS_LOCAL_MODEL", "heuristic-local")
-        self.light_model = os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite")
-        self.main_model = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
-        self.exploit_model = os.getenv("BOUNTYOS_EXPLOIT_MODEL", self.main_model)
-        self.provider = os.getenv("BOUNTYOS_AI_PROVIDER", "vertex")
+        self.policy = os.getenv("BOUNTYOS_MODEL_POLICY", "performance")
+        self.provider = os.getenv("BOUNTYOS_AI_PROVIDER", "gemini")
         self.live_model = os.getenv("BOUNTYOS_LIVE_MODEL", "tool-live-data")
+        self.chat_model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", FLASH_DEFAULT))
+        self.planner_model = os.getenv("BOUNTYOS_PLANNER_MODEL", FLASH_DEFAULT)
+        self.recon_model = os.getenv("BOUNTYOS_RECON_MODEL", FLASH_DEFAULT)
+        self.parser_model = os.getenv("BOUNTYOS_PARSER_MODEL", FLASH_DEFAULT)
+        self.exploit_model = os.getenv("BOUNTYOS_EXPLOIT_MODEL", PRO_DEFAULT)
+        self.validation_model = os.getenv("BOUNTYOS_VALIDATION_MODEL", self.exploit_model)
+        self.report_model = os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", PRO_DEFAULT))
 
-    def route(self, text: str = "", action: str = "", has_scan_context: bool = False) -> ExpertRoute:
-        raw = f"{text} {action}".lower()
+    def _route(
+        self,
+        *,
+        expert: str,
+        model: str,
+        workload: str,
+        reason: str,
+        target_profile: str,
+        selected_tools: list[str],
+        next_actions: list[str],
+        max_tokens: int = 2048,
+        provider: Optional[str] = None,
+        requires_approval: bool = False,
+        approval_reason: str = "",
+    ) -> ExpertRoute:
+        return ExpertRoute(
+            expert=expert,
+            provider=provider or self.provider,
+            model=model,
+            workload=workload,
+            reason=reason,
+            max_tokens=max_tokens,
+            policy=self.policy,
+            target_profile=target_profile,
+            selected_tools=selected_tools,
+            next_actions=next_actions,
+            requires_approval=requires_approval,
+            approval_reason=approval_reason,
+        )
 
+    @staticmethod
+    def _target_text(text: str, target_context: Optional[dict[str, Any]]) -> str:
+        target = target_context or {}
+        chunks = [text]
+        for key in ("domain", "name", "scope", "out_of_scope", "notes", "technology", "program"):
+            value = target.get(key)
+            if value:
+                chunks.append(str(value))
+        return " ".join(chunks).lower()
 
-        if any(k in raw for k in ["self evaluate", "evaluate agents", "quality loop", "critic agent", "verify work", "review agent work", "retry weak", "confidence calibration", "model performance"]):
-            return ExpertRoute(
-                expert="quality_critic_expert",
-                provider="local",
-                model=self.light_model,
-                workload="evidence_grounded_agent_evaluation",
-                reason="Agent-quality request detected; deterministic critic/verifier checks evidence before model commentary.",
-                max_tokens=768,
+    def classify_target(self, text: str = "", target_context: Optional[dict[str, Any]] = None) -> tuple[str, list[str], list[str]]:
+        raw = self._target_text(text, target_context)
+        if any(k in raw for k in ["graphql", "gql", "/graphql", "apollo"]):
+            return (
+                "graphql",
+                ["graphql endpoint discovery", "introspection check", "auth/role checks", "katana", "httpx"],
+                ["Discover GraphQL endpoints", "Check introspection safely", "Map roles and authorization boundaries"],
             )
+        if any(k in raw for k in ["swagger", "openapi", "api.", "/api/", "rest api", "postman", "jwt", "bearer"]):
+            return (
+                "api",
+                ["katana", "httpx", "arjun", "nuclei api templates", "jwt checks", "swagger/openapi discovery"],
+                ["Discover API docs and OpenAPI specs", "Probe parameters with arjun", "Check JWT/auth handling", "Run API nuclei templates"],
+            )
+        if any(k in raw for k in ["s3", "bucket", "gcs", "blob.core", "cloudfront", "metadata", "aws", "azure", "gcp"]):
+            return (
+                "cloud",
+                ["bucket exposure checks", "secrets checks", "metadata leak checks", "httpx", "nuclei cloud templates"],
+                ["Check exposed storage", "Look for metadata leaks", "Review public secrets indicators"],
+            )
+        if any(k in raw for k in ["wordpress", "wp-content", "wp-json", "drupal", "joomla", "cms"]):
+            return (
+                "wordpress_cms",
+                ["whatweb", "httpx", "nuclei cms templates", "wpscan-compatible checks"],
+                ["Fingerprint CMS version/plugins", "Run CMS-specific nuclei templates", "Check exposed admin surfaces"],
+            )
+        if any(k in raw for k in ["login", "account", "dashboard", "tenant", "workspace", "organization", "invite", "role", "saas"]):
+            return (
+                "saas_web_app",
+                ["katana", "httpx", "JS endpoint extraction", "auth flow mapping", "IDOR candidate ranking"],
+                ["Map auth flows", "Extract JS endpoints", "Rank IDOR candidates", "Identify role boundaries"],
+            )
+        return (
+            "generic_domain",
+            ["subfinder", "dnsx", "httpx", "katana", "whatweb", "nuclei safe templates"],
+            ["Passive recon", "Resolve live hosts", "Detect technologies", "Rank next safe checks"],
+        )
 
-        if any(k in raw for k in ["dollar rate", "usd rate", "exchange rate", "currency rate", "bitcoin price", "btc price", "ethereum price", "eth price", "latest cve", "recent cve", "today cve", "vulnerability news", "public ip", "what is my ip"]):
-            return ExpertRoute(
+    def route(
+        self,
+        text: str = "",
+        action: str = "",
+        has_scan_context: bool = False,
+        target_context: Optional[dict[str, Any]] = None,
+    ) -> ExpertRoute:
+        raw = f"{text} {action}".lower()
+        profile, profile_tools, profile_actions = self.classify_target(raw, target_context)
+
+        if any(k in raw for k in ["dollar rate", "usd rate", "exchange rate", "bitcoin price", "btc price", "ethereum price", "eth price", "latest cve", "recent cve", "today cve", "vulnerability news", "public ip", "what is my ip"]):
+            return self._route(
                 expert="live_data_expert",
                 provider="tool",
                 model=self.live_model,
                 workload="current_live_data_lookup",
-                reason="Current/live-data question detected; route to deterministic API connector instead of guessing.",
+                reason="Current/live-data lookup; use deterministic connector instead of model guessing.",
+                target_profile=profile,
+                selected_tools=["live-data connector"],
+                next_actions=["Fetch current data", "Return concise sourced answer"],
                 max_tokens=512,
             )
 
-        if any(k in raw for k in ["exploit", "idor", "ssrf", "rce", "sqlmap", "xss", "bypass", "validate", "proof"]):
-            return ExpertRoute(
+        if any(k in raw for k in ["report", "writeup", "write report", "bounty report"]):
+            return self._route(
+                expert="report_writer_expert",
+                model=self.report_model,
+                workload="report_writing",
+                reason="Report writing needs strongest model for clarity, impact, and reproduction detail.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=["Summarize evidence", "Write reproduction steps", "Validate impact and remediation"],
+                max_tokens=4096,
+            )
+
+        exploit_terms = any(k in raw for k in ["exploit", "idor", "ssrf", "sqli", "sql injection", "graphql authorization", "jwt", "auth bypass", "rce", "bypass", "validate", "proof", "poc", "critical", "high", "false positive", "severity"])
+        planning_only = any(k in raw for k in ["passive", "recon", "classify", "plan"]) and not any(k in raw for k in ["validate", "proof", "poc", "exploit"])
+        if exploit_terms and not planning_only:
+            return self._route(
                 expert="exploit_validation_expert",
-                provider=self.provider,
-                model=self.exploit_model,
-                workload="approved_active_validation_or_bug_proof",
-                reason="Active validation / exploitability language detected; route to strongest expert.",
+                model=self.exploit_model if "false positive" not in raw and "severity" not in raw else self.validation_model,
+                workload="evidence_driven_bug_reasoning",
+                reason="High-impact exploitability or validation keywords detected; route to strongest reasoning model.",
+                target_profile=profile,
+                selected_tools=profile_tools + ["least-intrusive validation checklist", "evidence store"],
+                next_actions=["Review existing evidence", "Choose least-intrusive verification", "Request approval before active validation"],
+                max_tokens=4096,
+                requires_approval=any(k in raw for k in ["exploit", "validate", "proof", "poc", "sqlmap", "active"]),
+                approval_reason="Active or intrusive validation may affect the target; explicit approval is required before execution.",
+            )
+
+        if any(k in raw for k in ["parse", "extract", "tool output", "stdout", "json", "findings"]):
+            return self._route(
+                expert="parser_expert",
+                model=self.parser_model,
+                workload="tool_output_parsing",
+                reason="Parsing/classification workload; use fastest Flash-class model.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=["Parse tool output", "Extract evidence", "Create concise finding candidates"],
                 max_tokens=2048,
             )
 
-        if has_scan_context and any(k in raw for k in ["finding", "bug", "critical", "high", "chain", "impact", "report", "summary"]):
-            return ExpertRoute(
+        if any(k in raw for k in ["summary", "summarize", "scan summary", "status"]):
+            return self._route(
+                expert="scan_summary_expert",
+                model=self.recon_model,
+                workload="scan_summary",
+                reason="Scan summaries should be fast and operational; use Flash-class recon model.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=["Summarize status", "List blockers", "Rank next safe steps"],
+                max_tokens=1536,
+            )
+
+        if any(k in raw for k in ["aggressive", "active scan", "active recon", "nuclei", "sqlmap", "ffuf"]):
+            return self._route(
+                expert="active_recon_planner",
+                model=self.planner_model,
+                workload="active_recon_planning",
+                reason="Active planning uses Flash for speed but requires approval before execution.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=["Plan active checks", "Use least-intrusive probes first", "Request approval before execution"],
+                max_tokens=1536,
+                requires_approval=True,
+                approval_reason="Active recon can send intrusive traffic and must be explicitly approved.",
+            )
+
+        if any(k in raw for k in ["passive", "recon", "subdomain", "wayback", "crt", "plan", "tools", "select tool", "classify target"]):
+            return self._route(
+                expert="recon_planner_expert",
+                model=self.recon_model,
+                workload="passive_recon_planning_and_tool_selection",
+                reason="Recon planning, target classification, and tool selection use Flash-class model for speed.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=profile_actions,
+                max_tokens=1536,
+            )
+
+        if has_scan_context and any(k in raw for k in ["bug", "impact", "finding", "chain"]):
+            return self._route(
                 expert="bug_reasoning_expert",
-                provider=self.provider,
-                model=self.main_model,
+                model=self.validation_model,
                 workload="post_scan_bug_reasoning",
-                reason="Scan context exists and user is asking for bug/impact reasoning.",
-                max_tokens=2048,
+                reason="Scan context plus bug-impact question; use strongest validation model.",
+                target_profile=profile,
+                selected_tools=profile_tools + ["evidence review", "confidence scoring"],
+                next_actions=["Review evidence", "Reduce false positives", "Rank impact"],
+                max_tokens=4096,
             )
 
-        if any(k in raw for k in ["connected account", "bounty account", "sync accounts", "my programs", "private invite", "private program", "login", "oauth", "api token"]):
-            return ExpertRoute(
-                expert="bounty_account_hub_expert",
-                provider="local",
-                model=self.local_model,
-                workload="connected_bounty_account_sync",
-                reason="Connected bounty-account/private invite request; route to account hub tool connector.",
-                max_tokens=768,
-            )
-
-        if any(k in raw for k in ["easy program", "easy scope", "less effort", "more money", "make money", "opportunity score", "profitable program"]):
-            return ExpertRoute(
-                expert="program_opportunity_expert",
-                provider="local",
-                model=self.local_model,
-                workload="program_opportunity_scoring",
-                reason="User wants low-effort/high-upside bounty target ranking; route to local opportunity scorer.",
-                max_tokens=768,
-            )
-
-        if any(k in raw for k in ["program", "bounty", "hackerone", "bugcrowd", "intigriti", "yeswehack", "scope import", "program radar"]):
-            return ExpertRoute(
-                expert="program_radar_expert",
-                provider="local",
-                model=self.local_model,
-                workload="program_discovery_scope_import",
-                reason="Program discovery/scope import is feed parsing and ranking; local expert is enough.",
-                max_tokens=512,
-            )
-
-        if any(k in raw for k in ["passive", "recon", "subdomain", "wayback", "crt", "show", "list", "status", "cancel"]):
-            return ExpertRoute(
-                expert="local_recon_expert",
-                provider="local",
-                model=self.local_model,
-                workload="recon_or_dashboard_command",
-                reason="Recon/status command can be handled by local/light logic.",
-                max_tokens=512,
-            )
-
-        return ExpertRoute(
-            expert="light_triage_expert",
-            provider=self.provider,
-            model=self.light_model,
-            workload="general_triage_or_chat",
-            reason="No heavy exploit/finding reasoning needed; use light model/heuristic path.",
-            max_tokens=768,
+        return self._route(
+            expert="chat_triage_expert",
+            model=self.chat_model,
+            workload="chat_and_triage",
+            reason="General chat/triage uses fastest Flash-class model under performance policy.",
+            target_profile=profile,
+            selected_tools=profile_tools,
+            next_actions=profile_actions,
+            max_tokens=1536,
         )
 
 
