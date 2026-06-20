@@ -502,7 +502,8 @@ async def caido_import_history(body: CaidoImportRequest, session: Session = Depe
         _store_event(session, body.scan_id, "caido", f"Imported {len(in_scope)} in-scope Caido requests", {"requests": in_scope[:50]})
         return {"ok": True, "summary": f"Imported {len(in_scope)} in-scope Caido requests.", "count": len(in_scope), "requests": in_scope[:100]}
     except CaidoConfigError as exc:
-        return {"ok": False, "error": str(exc), "summary": "Caido token is missing."}
+        logger.warning("Caido configuration error during history import", exc_info=exc)
+        return {"ok": False, "error": "Caido token is missing.", "summary": "Caido token is missing."}
     except Exception as exc:
         raise HTTPException(502, f"Caido import failed: {exc}")
 
@@ -518,7 +519,8 @@ async def caido_analyze_request(body: CaidoAnalyzeRequest, session: Session = De
         _store_event(session, body.scan_id, "caido", "Caido request analyzed with Gemini", data)
         return {"ok": True, **data}
     except CaidoConfigError as exc:
-        return {"ok": False, "error": str(exc), "summary": "Caido token is missing."}
+        logger.warning("Caido configuration error during request analysis", exc_info=exc)
+        return {"ok": False, "error": "Caido token is missing.", "summary": "Caido token is missing."}
     except CaidoSafetyError as exc:
         logger.warning("Caido safety validation failed: %s", exc)
         return {"ok": False, "error": "Request failed safety validation.", "summary": "Caido request is outside approved scope."}
