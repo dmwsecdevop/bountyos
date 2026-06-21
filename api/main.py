@@ -156,18 +156,16 @@ def spa_fallback(full_path: str):
 
     static_root = os.path.realpath("static")
     assets_root = os.path.realpath(os.path.join(static_root, "assets"))
-    candidate = os.path.join(static_root, safe_path)
-    candidate_real = os.path.realpath(candidate)
 
-    if os.path.commonpath([static_root, candidate_real]) != static_root:
+    if safe_path.startswith("assets/"):
+        filename = os.path.basename(safe_path)
+        if not filename or filename in {".", ".."}:
+            raise HTTPException(404, "Not found")
+        asset_path = os.path.join(assets_root, filename)
+        if os.path.isfile(asset_path):
+            return FileResponse(asset_path)
         raise HTTPException(404, "Not found")
 
-    if (
-        safe_path
-        and os.path.commonpath([assets_root, candidate_real]) == assets_root
-        and os.path.isfile(candidate_real)
-    ):
-        return FileResponse(candidate_real)
     index = "static/index.html"
     if os.path.exists(index):
         return FileResponse(index)
