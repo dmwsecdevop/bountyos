@@ -192,5 +192,5 @@ async def test_config(integration_id: str):
         raise HTTPException(404, "Unknown integration")
     try:
         return await tester()
-    except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+    except Exception:
+        return {"status": "error", "message": "Integration test failed"}
