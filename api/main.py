@@ -22,6 +22,7 @@ from api.routes.ws           import router as ws_router
 from api.routes.ai           import router as ai_router
 from api.routes.caido        import router as caido_router
 from api.routes.integrations import router as integrations_router
+from api.routes.integration_config import router as integration_config_router
 from api.routes.agent        import router as agent_router
 from api.routes.live         import router as live_router, ws_router as live_ws_router
 from api.routes.programs     import router as programs_router
@@ -76,6 +77,7 @@ app.include_router(approvals_router,    prefix="/api/v1")
 app.include_router(ai_router,           prefix="/api/v1")
 app.include_router(caido_router,        prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
+app.include_router(integration_config_router, prefix="/api/v1")
 app.include_router(agent_router,        prefix="/api/v1")
 app.include_router(live_router,         prefix="/api/v1")
 app.include_router(programs_router,     prefix="/api/v1")
@@ -133,45 +135,28 @@ def health():
     }
 
 
-@app.get("/api/v1/tools")
-def list_tools():
-    from api.tools.discovery import get_discovery_report
-    return get_discovery_report()
+@app.get("/")
+def root():
+    index = "static/index.html"
+    if os.path.exists(index):
+        return FileResponse(index)
+    return {"message": "BountyOS API", "dashboard": "static/index.html not found"}
 
 
-@app.get("/api/v1/tools/available")
-def available_tools():
-    from api.tools.discovery import ALL_TOOLS, get_passive_tools, DISCOVERED_TOOLS, refresh_remote_tools
-    from api.runners.manager import runner_manager
-    remote = refresh_remote_tools()
-    passive = set(get_passive_tools().keys())
-    return {
-        name: {
-            "phase":        t.phase,
-            "category":     t.category,
-            "description":  t.description,
-            "version":      t.version,
-            "passive_safe": name in passive,
-            "remote_only": bool(DISCOVERED_TOOLS.get(name, {}).get("remote_only")),
-            "locations": DISCOVERED_TOOLS.get(name, {}).get("locations", []),
-            "local": not bool(DISCOVERED_TOOLS.get(name, {}).get("remote_only")),
-        }
-        for name, t in ALL_TOOLS.items()
-    }
+if os.path.isdir("static"):
+    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets") if os.path.isdir("static/assets") else None
 
 
-# Static SPA
-_static = os.path.join(os.path.dirname(__file__), '..', 'static')
-if os.path.isdir(_static):
-    _assets = os.path.join(_static, 'assets')
-    if os.path.isdir(_assets):
-        app.mount('/assets', StaticFiles(directory=_assets), name='assets')
-
-    @app.get('/{full_path:path}', include_in_schema=False)
-    def serve_spa(full_path: str):
-        if full_path.startswith(('api/', 'ws/')):
-            raise HTTPException(404)
-        normalized = posixpath.normpath("/" + full_path).lstrip("/")
-        if ".." in normalized.split("/") or full_path.startswith(("/", "\\")) or "\\" in full_path:
-            raise HTTPException(404)
-        return FileResponse(os.path.join(_static, 'index.html'))
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str):
+    """Serve static dashboard assets and fall back to React SPA index."""
+    safe_path = posixpath.normpath(full_path).lstrip("/")
+    if safe_path.startswith(".."):
+        raise HTTPException(404, "Not found")
+    candidate = os.path.join("static", safe_path)
+    if safe_path and os.path.isfile(candidate):
+        return FileResponse(candidate)
+    index = "static/index.html"
+    if os.path.exists(index):
+        return FileResponse(index)
+    raise HTTPException(404, "Not found")
