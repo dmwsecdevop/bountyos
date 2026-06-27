@@ -104,7 +104,7 @@ class ModelExpertRouter:
         if any(k in raw for k in ["swagger", "openapi", "api.", "/api/", "rest api", "postman", "jwt", "bearer"]):
             return (
                 "api",
-                ["katana", "httpx", "arjun", "api templates", "jwt checks", "openapi discovery"],
+                ["katana", "httpx", "arjun", "api templates", "jwt checks", "swagger/openapi discovery"],
                 ["Discover API docs", "Probe parameters", "Review auth handling", "Run safe API checks"],
             )
         if any(k in raw for k in ["s3", "bucket", "gcs", "blob.core", "cloudfront", "metadata", "aws", "azure", "gcp"]):
@@ -202,6 +202,18 @@ class ModelExpertRouter:
                 max_tokens=4096,
             )
 
+        if action == "start_passive_scan" or any(k in raw for k in ["passive", "passive recon", "subdomain", "wayback", "crt", "plan", "tools", "select tool", "classify target"]):
+            return self._route(
+                expert="recon_planner_expert",
+                model=self.recon_model,
+                workload="passive_recon_planning_and_tool_selection",
+                reason="Recon planning, target classification, and tool selection use Flash-class model for speed.",
+                target_profile=profile,
+                selected_tools=profile_tools,
+                next_actions=profile_actions,
+                max_tokens=1536,
+            )
+
         if any(k in raw for k in ["validate", "proof", "poc", "critical", "high", "severity", "auth bypass", "idor", "ssrf", "jwt", "graphql authorization"]):
             return self._route(
                 expert="validation_reasoning_expert",
@@ -253,18 +265,6 @@ class ModelExpertRouter:
                 max_tokens=1536,
                 requires_approval=True,
                 approval_reason="Active recon can send intrusive traffic and must be explicitly approved.",
-            )
-
-        if any(k in raw for k in ["passive", "recon", "subdomain", "wayback", "crt", "plan", "tools", "select tool", "classify target"]):
-            return self._route(
-                expert="recon_planner_expert",
-                model=self.recon_model,
-                workload="passive_recon_planning_and_tool_selection",
-                reason="Recon planning, target classification, and tool selection use Flash-class model for speed.",
-                target_profile=profile,
-                selected_tools=profile_tools,
-                next_actions=profile_actions,
-                max_tokens=1536,
             )
 
         if has_scan_context and any(k in raw for k in ["bug", "impact", "finding", "chain"]):

@@ -515,7 +515,7 @@ class ArchitectAgent:
         except Exception as exc:
             if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
                 logger.exception("Architect agent action failed: action=%s", decision.action)
-                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": "Internal processing error.", "next_actions": [], "requires_approval": False, "approval_reason": "", "selected_tools": [], "model_used": "", "logs": [], "raw": {}}
+                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": str(exc), "next_actions": [], "requires_approval": False, "approval_reason": "", "selected_tools": [], "model_used": "", "logs": [], "raw": {}}
             else:
                 raise
         finally:

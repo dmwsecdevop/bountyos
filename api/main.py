@@ -43,6 +43,7 @@ from api.routes.reports      import router as reports_router
 from api.routes.evals        import router as evals_router
 from api.routes.exploit      import router as exploit_router
 from api.routes.upgrades     import router as upgrades_router
+from api.routes.tools        import router as tools_router
 
 
 @asynccontextmanager
@@ -98,6 +99,7 @@ app.include_router(reports_router, prefix="/api/v1")
 app.include_router(evals_router, prefix="/api/v1")
 app.include_router(exploit_router, prefix="/api/v1")
 app.include_router(upgrades_router, prefix="/api/v1")
+app.include_router(tools_router, prefix="/api/v1")
 app.include_router(ws_router)
 app.include_router(live_ws_router)
 app.include_router(runners_ws_router)

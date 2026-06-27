@@ -131,7 +131,7 @@ def _run_hunter_postprocess(scan_id: str, auto_report: bool = True) -> None:
             findings = s.exec(
                 select(Finding)
                 .where(Finding.scan_id == scan_id)
-                .where(Finding.false_positive is False)
+                .where(Finding.false_positive == False)  # noqa: E712
             ).all()
             report_id = None
             if auto_report and findings:
