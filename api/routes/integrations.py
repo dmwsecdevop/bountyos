@@ -471,7 +471,7 @@ async def browser_mcp_analyze(body: BrowserAnalyzeRequest, session: Session = De
         }
     except BrowserMCPError as exc:
         logger.exception("Browser MCP analysis failed")
-        return {"ok": False, "error": "Unable to analyze browser snapshot at this time.", "summary": "Browser MCP unavailable or outside target scope."}
+        return {"ok": False, "error": str(exc), "summary": "Browser MCP unavailable or outside target scope."}
 
 
 @router.get("/caido/status")
@@ -503,7 +503,7 @@ async def caido_import_history(body: CaidoImportRequest, session: Session = Depe
         return {"ok": True, "summary": f"Imported {len(in_scope)} in-scope Caido requests.", "count": len(in_scope), "requests": in_scope[:100]}
     except CaidoConfigError as exc:
         logger.warning("Caido configuration error during history import", exc_info=exc)
-        return {"ok": False, "error": "Caido token is missing.", "summary": "Caido token is missing."}
+        return {"ok": False, "error": str(exc), "summary": "Caido token is missing."}
     except Exception as exc:
         raise HTTPException(502, f"Caido import failed: {exc}")
 
@@ -520,7 +520,7 @@ async def caido_analyze_request(body: CaidoAnalyzeRequest, session: Session = De
         return {"ok": True, **data}
     except CaidoConfigError as exc:
         logger.warning("Caido configuration error during request analysis", exc_info=exc)
-        return {"ok": False, "error": "Caido token is missing.", "summary": "Caido token is missing."}
+        return {"ok": False, "error": str(exc), "summary": "Caido token is missing."}
     except CaidoSafetyError as exc:
         logger.warning("Caido safety validation failed: %s", exc)
         return {"ok": False, "error": "Request failed safety validation.", "summary": "Caido request is outside approved scope."}
