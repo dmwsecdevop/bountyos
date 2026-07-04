@@ -38,7 +38,15 @@ DEFAULT_TOOL_SPECS = {
     "gau": ("gau", "--version"),
     "waybackurls": ("waybackurls", "-h"),
     "assetfinder": ("assetfinder", "-h"),
-    "amass": ("amass", "-version"),
+    "anew": ("anew", "-h"),
+    "qsreplace": ("qsreplace", "-h"),
+    "unfurl": ("unfurl", "-h"),
+    "hakrawler": ("hakrawler", "-h"),
+    "gospider": ("gospider", "-version"),
+    "shodan": ("shodan", "--version"),
+    "arjun": ("arjun", "--version"),
+    "uro": ("uro", "--version"),
+    "amass": ("amass", "version"),
     "nmap": ("nmap", "--version"),
     "masscan": ("masscan", "--version"),
     "sqlmap": ("sqlmap", "--version"),
@@ -102,13 +110,58 @@ def discover_tools() -> Dict[str, dict]:
     return tools
 
 
+def normalize_server_url(url: str) -> str:
+    """Normalize server URL to WebSocket format."""
+    url = url.strip().rstrip("/")
+    if not url:
+        return ""
+    if url.startswith("https://"):
+        return "wss://" + url[len("https://"):]
+    if url.startswith("http://"):
+        return "ws://" + url[len("http://"):]
+    if not url.startswith("wss://") and not url.startswith("ws://"):
+        return "wss://" + url
+    return url
+
+
 class Runner:
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        try:
+            import websockets
+        except ImportError:
+            print("[-] Error: 'websockets' library is missing. Install it with: pip install websockets", file=sys.stderr)
+            sys.exit(1)
+
         self.tools = discover_tools()
         self.processes: Dict[str, asyncio.subprocess.Process] = {}
         self.send_lock = asyncio.Lock()
         self.ws = None
+
+        print(f"[*] Runner ID: {self.args.runner_id}")
+        print(f"[*] Server URL: {self.args.server}")
+        print(f"[*] Hostname: {socket.gethostname()}")
+        print(f"[*] Platform: {platform.system()} {platform.release()}")
+        print(f"[*] PATH: {os.environ.get('PATH', 'not set')}")
+        print(f"[*] Discovered {len(self.tools)} tools: {', '.join(sorted(self.tools.keys()))}")
+
+        if self.args.check:
+            self.run_check()
+            sys.exit(0)
+
+    def run_check(self) -> None:
+        print("\n--- Runner Check Mode ---")
+        missing = []
+        for name in TOOL_SPECS:
+            if name not in self.tools:
+                missing.append(name)
+
+        if missing:
+            print(f"[!] Missing expected tools: {', '.join(sorted(missing))}")
+        else:
+            print("[+] All expected tools discovered.")
+
+        print("[+] Runner check completed successfully.")
 
     async def send(self, payload: dict) -> None:
         if not self.ws:
@@ -210,53 +263,76 @@ class Runner:
     async def session(self) -> None:
         query = urlencode({"runner_id": self.args.runner_id})
         uri = self.args.server.rstrip("/") + "/ws/runners/connect?" + query
-        async with websockets.connect(
-            uri,
-            ping_interval=20,
-            ping_timeout=30,
-            close_timeout=10,
-            max_size=2_000_000,
-        ) as ws:
-            self.ws = ws
-            await self.send({"type": "auth", "token": self.args.token})
-            await self.send({
-                "type": "hello",
-                "name": self.args.name,
-                "hostname": socket.gethostname(),
-                "platform": f"{platform.system()} {platform.release()} / {platform.machine()}",
-                "tools": self.tools,
-                "labels": self.args.labels,
-                "runner_version": "1.0.0",
-            })
-            heartbeat_task = asyncio.create_task(self.heartbeat())
-            tasks: Dict[str, asyncio.Task] = {}
-            try:
-                async for raw in ws:
-                    message = json.loads(raw)
-                    mtype = message.get("type")
-                    if mtype == "job":
-                        job_id = str(message.get("job_id"))
-                        tasks[job_id] = asyncio.create_task(self.run_job(message))
-                    elif mtype == "cancel_job":
-                        job_id = str(message.get("job_id"))
-                        task = tasks.get(job_id)
-                        if task:
-                            task.cancel()
-                        await self.cancel_job(job_id)
-                    elif mtype == "refresh_inventory":
-                        self.tools = discover_tools()
-                        await self.send({
-                            "type": "hello", "name": self.args.name,
-                            "hostname": socket.gethostname(),
-                            "platform": f"{platform.system()} {platform.release()} / {platform.machine()}",
-                            "tools": self.tools, "labels": self.args.labels,
-                            "runner_version": "1.0.0",
-                        })
-            finally:
-                heartbeat_task.cancel()
-                for task in tasks.values():
-                    task.cancel()
-                self.ws = None
+
+        masked_uri = uri
+        if "token=" in uri:
+            # Although token is usually in auth message, if it was in URI we would mask it
+            pass
+
+        print(f"[*] Connecting to {self.args.server}", flush=True)
+        print(f"[*] Runner ID: {self.args.runner_id}", flush=True)
+
+        try:
+            async with websockets.connect(
+                uri,
+                ping_interval=20,
+                ping_timeout=30,
+                close_timeout=10,
+                max_size=2_000_000,
+            ) as ws:
+                self.ws = ws
+                await self.send({"type": "auth", "token": self.args.token})
+                await self.send({
+                    "type": "hello",
+                    "name": self.args.name,
+                    "hostname": socket.gethostname(),
+                    "platform": f"{platform.system()} {platform.release()} / {platform.machine()}",
+                    "tools": self.tools,
+                    "labels": self.args.labels,
+                    "runner_version": "1.0.0",
+                })
+                print("[+] Connection established and authenticated", flush=True)
+                heartbeat_task = asyncio.create_task(self.heartbeat())
+                tasks: Dict[str, asyncio.Task] = {}
+                try:
+                    async for raw in ws:
+                        message = json.loads(raw)
+                        mtype = message.get("type")
+                        if mtype == "job":
+                            job_id = str(message.get("job_id"))
+                            tasks[job_id] = asyncio.create_task(self.run_job(message))
+                        elif mtype == "cancel_job":
+                            job_id = str(message.get("job_id"))
+                            task = tasks.get(job_id)
+                            if task:
+                                task.cancel()
+                            await self.cancel_job(job_id)
+                        elif mtype == "refresh_inventory":
+                            self.tools = discover_tools()
+                            await self.send({
+                                "type": "hello", "name": self.args.name,
+                                "hostname": socket.gethostname(),
+                                "platform": f"{platform.system()} {platform.release()} / {platform.machine()}",
+                                "tools": self.tools, "labels": self.args.labels,
+                                "runner_version": "1.0.0",
+                            })
+                finally:
+                    heartbeat_task.cancel()
+                    for task in tasks.values():
+                        task.cancel()
+                    self.ws = None
+        except websockets.exceptions.InvalidStatusCode as exc:
+            if exc.status_code == 401:
+                print(f"[-] Authentication failed (401) for {self.args.runner_id}", file=sys.stderr)
+            else:
+                print(f"[-] Server returned invalid status code: {exc.status_code}", file=sys.stderr)
+            raise
+        except (socket.gaierror, ConnectionRefusedError) as exc:
+            print(f"[-] Network/DNS error: {exc}", file=sys.stderr)
+            raise
+        except websockets.exceptions.ConnectionClosed as exc:
+            print(f"[-] Connection closed by server: {exc.code} {exc.reason}", file=sys.stderr)
+            raise
 
     async def forever(self) -> None:
         delay = 2
@@ -280,13 +356,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token", default=os.getenv("BOUNTYOS_RUNNER_TOKEN"))
     parser.add_argument("--name", default=os.getenv("BOUNTYOS_RUNNER_NAME", socket.gethostname()))
     parser.add_argument("--labels", default=os.getenv("BOUNTYOS_RUNNER_LABELS", "parrot,remote"))
+    parser.add_argument("--check", action="store_true", help="Check dependencies and tools then exit")
     args = parser.parse_args()
-    if not args.server or not args.runner_id or not args.token:
-        parser.error("--server, --runner-id and --token are required")
-    if args.server.startswith("https://"):
-        args.server = "wss://" + args.server[len("https://"):]
-    elif args.server.startswith("http://"):
-        args.server = "ws://" + args.server[len("http://"):]
+
+    args.server = normalize_server_url(args.server or "")
+
+    if not args.check:
+        if not args.server or not args.runner_id or not args.token:
+            parser.error("--server, --runner-id and --token are required (unless using --check)")
+
     args.labels = [x.strip() for x in str(args.labels).split(",") if x.strip()]
     return args
 
