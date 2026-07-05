@@ -128,11 +128,11 @@ class ArchitectAgent:
             return ArchitectDecision("check_caido_traffic", False, 0.9, target_id, scan_id, "Caido traffic import/analysis job requested.")
         if live_data_agent.detect(t):
             return ArchitectDecision("live_data_lookup", False, 0.91, target_id, scan_id, "Current/live-data question detected.")
-        if any(k in t for k in ["sync bounty accounts", "sync accounts", "check my programs", "check my bugcrowd", "check my hackerone", "check my intigriti", "check my yeswehack", "private invit[...]
+        if any(k in t for k in ["sync bounty accounts", "sync accounts", "check my programs", "check my bugcrowd", "check my hackerone", "check my intigriti", "check my yeswehack", "private invitations"]):
             return ArchitectDecision("sync_bounty_accounts", False, 0.88, target_id, scan_id, "Connected Bounty Account Hub sync requested.")
         if any(k in t for k in ["show bounty accounts", "list bounty accounts", "connected accounts", "show accounts"]):
             return ArchitectDecision("show_bounty_accounts", False, 0.84, target_id, scan_id, "User asked to view connected bounty accounts.")
-        if any(k in t for k in ["easy program", "easy scope", "easy bounty", "less effort", "more money", "make money", "profitable program", "opportunity score", "best program", "select easy", "[...]
+        if any(k in t for k in ["easy program", "easy scope", "easy bounty", "less effort", "more money", "make money", "profitable program", "opportunity score", "best program", "select easy"]):
             return ArchitectDecision("recommend_programs", False, 0.88, target_id, scan_id, "Program opportunity scoring requested.")
         if any(k in t for k in ["check bug bounty programs", "check programs", "program radar", "bounty radar", "find bounty programs", "online bug bounty", "new programs"]):
             return ArchitectDecision("check_programs", False, 0.86, target_id, scan_id, "Bounty Program Radar check requested.")
@@ -293,7 +293,7 @@ class ArchitectAgent:
             from api.quality import quality_engine
             report_row = session.get(BountyReport, report["id"])
             evaluation = quality_engine.evaluate_report(session, report_row)
-            result.update({"message": f"Report generated with quality score {report['quality_score']}/100 and critic score {evaluation['overall_score']}/100.", "report": report, "quality_evaluati[...]
+            result.update({"message": f"Report generated with quality score {report['quality_score']}/100 and critic score {evaluation['overall_score']}/100.", "report": report, "quality_evaluation": evaluation})
 
         elif action == "show_hypotheses":
             if not decision.scan_id:
@@ -435,7 +435,7 @@ class ArchitectAgent:
                 except Exception:
                     continue
             if decision.scan_id:
-                event = ScanEvent(scan_id=decision.scan_id, phase=ScanPhase.RECON, tool="caido", level="info", message=f"Imported {len(in_scope)} in-scope Caido requests", raw=json.dumps({"reques[...]
+                event = ScanEvent(scan_id=decision.scan_id, phase=ScanPhase.RECON, tool="caido", level="info", message=f"Imported {len(in_scope)} in-scope Caido requests", raw=json.dumps({"request_count": len(in_scope)})[:8000])
                 session.add(event); session.commit()
             route = model_router.route(transcript, action, has_scan_context=bool(decision.scan_id), target_context=target_data)
             result.update({
@@ -525,15 +525,15 @@ class ArchitectAgent:
                     "raw": {"target_profile": route.target_profile},
                 })
             except Exception as e:
-                result.update({"ok": False, "message": f"Parsing failed: {e}"})
+                result.update({"ok": False, "message": "Parsing failed: Target page could not be processed.", "error": self._sanitize_error(e)})
 
         else:
-            result.update({"message": "I can run passive recon, check public bug bounty programs, sync connected bounty accounts, import program targets, approved aggressive scans, AI analysis, s[...]
+            result.update({"message": "I can run passive recon, check public bug bounty programs, sync connected bounty accounts, import program targets, approved aggressive scans, AI analysis, summarize scans, analyze findings, and more. What would you like to do?"})
 
         publish_sync("agent.act", result)
         return result
 
-    async def handle(self, session: Session, background_tasks: Any, transcript: str, selected_target_id: Optional[str] = None, selected_scan_id: Optional[str] = None, approve: bool = False) -> Di[...]
+    async def handle(self, session: Session, background_tasks: Any, transcript: str, selected_target_id: Optional[str] = None, selected_scan_id: Optional[str] = None, approve: bool = False) -> Dict[str, Any]:
         set_agent_state(status="observing", stage="observe", last_action=transcript)
         obs = self.observe(session, transcript, selected_target_id, selected_scan_id)
         set_agent_state(status="reasoning", stage="reason")
@@ -546,7 +546,7 @@ class ArchitectAgent:
         except Exception as exc:
             if decision.action in {"general_chat", "summarize_scan", "analyze_findings", "exploit_reasoning", "parse_target_page"}:
                 logger.exception("Architect agent action failed: action=%s", decision.action)
-                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": self._sanitize_error(exc), "next_actions": [], "requires_approval": False, "approval_reason": "", "select[...]
+                result = {"ok": False, "provider": "gemini", "summary": "Gemini request failed.", "error": self._sanitize_error(exc), "next_actions": [], "requires_approval": False, "approval_reason": "", "selected_tools": [], "model_used": "", "logs": [], "raw": {}}
             else:
                 raise
         finally:
