@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import json
 import logging
-import re
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -43,36 +42,6 @@ class ArchitectDecision:
 
 
 class ArchitectAgent:
-    @staticmethod
-    def _sanitize_error(exc: Exception) -> str:
-        """Sanitize exception message to prevent information disclosure.
-        
-        Removes or masks sensitive patterns like credentials, paths, and API keys.
-        Only exposes safe, user-facing error messages.
-        """
-        error_msg = str(exc)
-        
-        # Strip sensitive patterns
-        patterns = [
-            r'password\s*[=:]\s*[^\s,;]+',
-            r'token\s*[=:]\s*[^\s,;]+',
-            r'key\s*[=:]\s*[^\s,;]+',
-            r'api[_-]?key\s*[=:]\s*[^\s,;]+',
-            r'secret\s*[=:]\s*[^\s,;]+',
-            r'authorization\s*[=:]\s*[^\s,;]+',
-            r'bearer\s+[^\s]+',
-            r'/[a-zA-Z0-9_/.]+',  # File paths
-        ]
-        
-        for pattern in patterns:
-            error_msg = re.sub(pattern, '***', error_msg, flags=re.IGNORECASE)
-        
-        # Only expose message if it's reasonably short and doesn't look like internal noise
-        if len(error_msg) > 200 or any(keyword in error_msg.lower() for keyword in ['traceback', 'line ', 'module ', 'import']):
-            return "Internal processing error."
-        
-        return error_msg if error_msg.strip() else "Internal processing error."
-
     def observe(self, session: Session, transcript: str, selected_target_id: Optional[str], selected_scan_id: Optional[str]) -> Dict[str, Any]:
         target = session.get(Target, selected_target_id) if selected_target_id else None
         scan = session.get(Scan, selected_scan_id) if selected_scan_id else None
