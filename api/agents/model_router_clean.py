@@ -11,8 +11,8 @@ import os
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
-FLASH_DEFAULT = "gemini-2.5-flash"
-PRO_DEFAULT = "gemini-2.5-pro"
+FLASH_DEFAULT = "gemini-1.5-flash"
+PRO_DEFAULT = "gemini-1.5-pro"
 
 
 @dataclass
@@ -40,16 +40,16 @@ class ModelExpertRouter:
         self.policy = os.getenv("BOUNTYOS_MODEL_POLICY", "performance")
         self.provider = os.getenv("BOUNTYOS_AI_PROVIDER", "gemini")
         self.live_model = os.getenv("BOUNTYOS_LIVE_MODEL", "tool-live-data")
-        self.chat_model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"))
+        self.chat_model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-1.5-flash-8b"))
         self.planner_model = os.getenv("BOUNTYOS_PLANNER_MODEL", FLASH_DEFAULT)
         self.recon_model = os.getenv("BOUNTYOS_RECON_MODEL", FLASH_DEFAULT)
         self.parser_model = os.getenv("BOUNTYOS_PARSER_MODEL", FLASH_DEFAULT)
-        self.agentic_model = os.getenv("BOUNTYOS_AGENTIC_MODEL", "gemini-3.5-flash")
-        self.browser_model = os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash")
-        self.caido_model = os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash")
+        self.agentic_model = os.getenv("BOUNTYOS_AGENTIC_MODEL", "gemini-1.5-flash")
+        self.browser_model = os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-1.5-flash")
+        self.caido_model = os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-1.5-flash")
         self.validation_model = os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", PRO_DEFAULT))
         self.report_model = os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", PRO_DEFAULT))
-        self.bug_fallback_model = os.getenv("BOUNTYOS_BUG_FALLBACK_MODEL", "gemini-3.5-flash")
+        self.bug_fallback_model = os.getenv("BOUNTYOS_BUG_FALLBACK_MODEL", "gemini-1.5-flash")
 
     def _route(
         self,

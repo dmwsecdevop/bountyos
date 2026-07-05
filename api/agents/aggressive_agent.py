@@ -31,7 +31,7 @@ from api.agents.hacker_mindset import (
 from api.tools import fullpower
 
 _client = get_ai_client()
-MODEL   = os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"))
+MODEL   = os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-pro"))
 MAX_PAYLOAD_VARIANTS = 5
 
 # ─── WAF bypass payloads ──────────────────────────────────────────────────────
@@ -655,7 +655,8 @@ async def run_aggressive_agent(
         _log(scan_id, f"🔄 Aggressive Agent iteration {iteration+1}/{max_iterations}")
 
         try:
-            response = _client.messages.create(
+            response = await asyncio.to_thread(
+                _client.messages.create,
                 model=MODEL, max_tokens=4096, system=system,
                 tools=AGGRESSIVE_AI_TOOLS, messages=messages,
             )

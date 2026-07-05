@@ -11,6 +11,7 @@ new scope hardening or replace the existing scanner safety layer.
 from __future__ import annotations
 
 import os
+import re
 import json
 import logging
 from dataclasses import dataclass, asdict
@@ -42,6 +43,31 @@ class ArchitectDecision:
 
 
 class ArchitectAgent:
+    @staticmethod
+    def _sanitize_error(exc: Exception) -> str:
+        """Sanitize exception message to prevent information disclosure."""
+        msg = str(exc) if exc is not None else ""
+        if not msg:
+            return "Internal processing error."
+
+        # Redact common sensitive patterns
+        if "Traceback" in msg or 'File "' in msg or ("line " in msg and ".py" in msg):
+            return "Internal processing error."
+
+        # Redact URLs, Bearer tokens, and common credentials
+        msg = re.sub(r'\w+://[^\s]+', '***', msg)
+        msg = re.sub(r'\bBearer\s+[A-Za-z0-9\-_.]+', 'Bearer ***', msg, flags=re.IGNORECASE)
+        msg = re.sub(
+            r'\b(password|token|api[_-]?key|secret|authorization)\s*[=:]\s*[^\s,;]+',
+            r'\1=***', msg, flags=re.IGNORECASE,
+        )
+        msg = re.sub(r'/[\w\-./]+\.\w+', '***', msg)
+
+        msg = msg.strip()
+        if not msg or len(msg) > 200:
+            return "Internal processing error."
+        return msg
+
     def observe(self, session: Session, transcript: str, selected_target_id: Optional[str], selected_scan_id: Optional[str]) -> Dict[str, Any]:
         target = session.get(Target, selected_target_id) if selected_target_id else None
         scan = session.get(Scan, selected_scan_id) if selected_scan_id else None
@@ -420,7 +446,7 @@ class ArchitectAgent:
             })
 
         elif action == "live_data_lookup":
-            live_result = live_data_agent.answer(transcript)
+            live_result = await live_data_agent.answer_async(transcript)
             result.update(live_result.as_dict())
             result["message"] = live_result.answer
 

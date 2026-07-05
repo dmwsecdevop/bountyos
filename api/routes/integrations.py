@@ -467,7 +467,7 @@ async def browser_mcp_analyze(body: BrowserAnalyzeRequest, session: Session = De
             "js_endpoints": data["js_endpoints"],
             "auth_flows": data["auth_flows"],
             "evidence": data,
-            "model_used": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash"),
+            "model_used": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-1.5-flash"),
         }
     except BrowserMCPError as exc:
         logger.exception("Browser MCP analysis failed")

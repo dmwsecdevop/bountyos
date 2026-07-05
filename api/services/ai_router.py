@@ -14,11 +14,11 @@ PURPOSE_ENV = {
     "report_writing": "BOUNTYOS_REPORT_MODEL",
 }
 DEFAULT_MODELS = {
-    "fast_chat": "gemini-2.5-flash",
-    "recon_summary": "gemini-2.5-flash",
-    "bug_reasoning": "gemini-2.5-pro",
-    "debate_review": "gemini-2.5-flash",
-    "report_writing": "gemini-2.5-pro",
+    "fast_chat": "gemini-1.5-flash",
+    "recon_summary": "gemini-1.5-flash",
+    "bug_reasoning": "gemini-1.5-pro",
+    "debate_review": "gemini-1.5-flash",
+    "report_writing": "gemini-1.5-pro",
 }
 
 
@@ -30,7 +30,7 @@ def configured_provider() -> str:
 
 def select_model(purpose: str = "fast_chat") -> str:
     env_name = PURPOSE_ENV.get(purpose, "BOUNTYOS_MAIN_MODEL")
-    return os.getenv(env_name) or os.getenv("BOUNTYOS_MAIN_MODEL") or DEFAULT_MODELS.get(purpose, "gemini-2.5-flash")
+    return os.getenv(env_name) or os.getenv("BOUNTYOS_MAIN_MODEL") or DEFAULT_MODELS.get(purpose, "gemini-1.5-flash")
 
 
 def provider_status() -> dict[str, Any]:

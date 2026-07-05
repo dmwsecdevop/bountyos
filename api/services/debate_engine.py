@@ -21,7 +21,7 @@ from api.ai import get_ai_client, AIProviderError
 
 # Configuration from environment
 DEBATE_ENABLED = os.getenv("BOUNTYOS_DEBATE_ENABLED", "false").lower() in {"1","true","yes"}
-DEBATE_MODEL = os.getenv("BOUNTYOS_DEBATE_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-flash"))
+DEBATE_MODEL = os.getenv("BOUNTYOS_DEBATE_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-flash"))
 DEBATE_TIMEOUT = int(os.getenv("BOUNTYOS_DEBATE_TIMEOUT_SECONDS", "60"))
 DEBATE_MAX_TOKENS = int(os.getenv("BOUNTYOS_DEBATE_MAX_TOKENS", "1500"))
 
@@ -123,13 +123,16 @@ class DebateSession:
     async def _call_model(self, system: str, user: str, max_tokens: int = DEBATE_MAX_TOKENS, timeout: int = DEBATE_TIMEOUT):
         # Wrap model call in asyncio timeout and convert to provider client call
         try:
-            coro = self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": user}],
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.client.messages.create,
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                ),
+                timeout=timeout
             )
-            return await asyncio.wait_for(asyncio.to_thread(lambda: coro), timeout=timeout)
         except asyncio.TimeoutError:
             raise AIProviderError("Debate model timed out")
         except Exception as exc:

@@ -143,14 +143,14 @@ def _get_client() -> CaidoClient:
 async def caido_status():
     """Check if Caido is reachable and token is valid."""
     if not CAIDO_TOKEN:
-        return {"connected": False, "reason": "CAIDO_API_TOKEN not set", "token_set": False, "url": CAIDO_URL, "model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash")}
+        return {"connected": False, "reason": "CAIDO_API_TOKEN not set", "token_set": False, "url": CAIDO_URL, "model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-1.5-flash")}
     client = CaidoClient(CAIDO_URL, CAIDO_TOKEN)
     alive  = await client.ping()
     return {
         "connected": alive,
         "url":       CAIDO_URL,
         "token_set": bool(CAIDO_TOKEN),
-        "model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash"),
+        "model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-1.5-flash"),
     }
 
 

@@ -34,7 +34,7 @@ from api.models import (
 
 _client = get_ai_client()
 
-MODEL = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+MODEL = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-pro")
 
 # ─── Tool definitions exposed to Gemini ──────────────────────────────────────
 # These are the actions Gemini can request. Each maps to a handler below.
@@ -442,7 +442,8 @@ async def run_ai_coordinator(
         _log(f"🔄 AI iteration {iteration + 1}/{max_iterations}")
 
         try:
-            response = _client.messages.create(
+            response = await asyncio.to_thread(
+                _client.messages.create,
                 model=MODEL,
                 max_tokens=4096,
                 system=system,

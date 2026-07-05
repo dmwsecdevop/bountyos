@@ -35,7 +35,7 @@ def capabilities():
 
 
 @router.post("/query")
-def query(req: LiveDataQuery):
+async def query(req: LiveDataQuery):
     if not req.query.strip():
         raise HTTPException(400, "Query is empty")
-    return live_data_agent.answer(req.query).as_dict()
+    return (await live_data_agent.answer_async(req.query)).as_dict()

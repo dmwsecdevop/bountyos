@@ -25,7 +25,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
 
 _client = get_ai_client()
-MODEL   = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")
+MODEL   = os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-pro")
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -89,19 +89,19 @@ def get_model_config():
     return {
         "provider": os.getenv("BOUNTYOS_AI_PROVIDER", "gemini"),
         "policy": os.getenv("BOUNTYOS_MODEL_POLICY", "performance"),
-        "chat_model": os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite")),
-        "planner_model": os.getenv("BOUNTYOS_PLANNER_MODEL", "gemini-2.5-flash"),
-        "recon_model": os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash"),
-        "parser_model": os.getenv("BOUNTYOS_PARSER_MODEL", "gemini-2.5-flash"),
-        "agentic_model": os.getenv("BOUNTYOS_AGENTIC_MODEL", "gemini-3.5-flash"),
-        "browser_model": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash"),
-        "caido_model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash"),
-        "exploit_model": os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"),
-        "validation_model": os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro")),
-        "report_model": os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro")),
-        "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"),
-        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"),
-        "aggressive_model": os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", "gemini-2.5-pro"),
+        "chat_model": os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-1.5-flash-8b")),
+        "planner_model": os.getenv("BOUNTYOS_PLANNER_MODEL", "gemini-1.5-flash"),
+        "recon_model": os.getenv("BOUNTYOS_RECON_MODEL", "gemini-1.5-flash"),
+        "parser_model": os.getenv("BOUNTYOS_PARSER_MODEL", "gemini-1.5-flash"),
+        "agentic_model": os.getenv("BOUNTYOS_AGENTIC_MODEL", "gemini-1.5-flash"),
+        "browser_model": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-1.5-flash"),
+        "caido_model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-1.5-flash"),
+        "exploit_model": os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-1.5-pro"),
+        "validation_model": os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-1.5-pro")),
+        "report_model": os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-pro")),
+        "main_model": os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-pro"),
+        "light_model": os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-1.5-flash-8b"),
+        "aggressive_model": os.getenv("BOUNTYOS_AGGRESSIVE_MODEL", "gemini-1.5-pro"),
         "vertex": vertex in {"1", "true", "yes", "on"},
     }
 
@@ -134,7 +134,7 @@ async def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
 
     # Live/current questions must use live-data connectors instead of model guessing.
     if selected.expert == "live_data_expert" or live_data_agent.detect(user_text):
-        live = live_data_agent.answer(user_text)
+        live = await live_data_agent.answer_async(user_text)
         return {
             "response": live.answer,
             "model_route": selected.as_dict(),
@@ -146,9 +146,9 @@ async def ai_chat(req: ChatRequest, session: Session = Depends(get_session)):
 
     model = selected.model
     if selected.provider in ("local", "tool"):
-        model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"))
+        model = os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-1.5-flash-8b"))
     if selected.expert == "local_recon_expert":
-        model = os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash")
+        model = os.getenv("BOUNTYOS_RECON_MODEL", "gemini-1.5-flash")
     if not model:
         model = MODEL
 
@@ -211,7 +211,7 @@ def trigger_analysis(
 
 
 @router.get("/scan/{scan_id}/summary")
-def get_ai_summary(scan_id: str, session: Session = Depends(get_session)):
+async def get_ai_summary(scan_id: str, session: Session = Depends(get_session)):
     """
     Returns a quick AI-generated summary of the scan — severity breakdown,
     top findings, and recommended remediation priority.
@@ -221,7 +221,8 @@ def get_ai_summary(scan_id: str, session: Session = Depends(get_session)):
         raise HTTPException(404, "Scan not found")
 
     try:
-        response = _client.messages.create(
+        response = await asyncio.to_thread(
+            _client.messages.create,
             model=MODEL,
             max_tokens=1024,
             system="You are a penetration testing report writer. Be concise, precise, and technical.",
@@ -251,12 +252,13 @@ def get_provider_status():
 
 
 @router.post("/provider/test")
-def test_provider():
+async def test_provider():
     """Make a minimal Gemini request using the configured runtime identity."""
     status = provider_status()
     model = status["light_model"]
     try:
-        response = _client.messages.create(
+        response = await asyncio.to_thread(
+            _client.messages.create,
             model=model,
             max_tokens=64,
             system="You are the BountyOS provider health check.",
@@ -310,7 +312,7 @@ def detect_technologies(scan_id: str, session: Session = Depends(get_session)):
 
 
 @router.post("/mindset/analyze/{scan_id}")
-def analyze_with_mindset(scan_id: str, session: Session = Depends(get_session)):
+async def analyze_with_mindset(scan_id: str, session: Session = Depends(get_session)):
     """
     Run a quick AI analysis using the hacker mindset framework.
     Returns targeted questions and attack hypotheses for the current scan state.
@@ -336,7 +338,8 @@ def analyze_with_mindset(scan_id: str, session: Session = Depends(get_session)):
     # Ask Gemini to generate targeted hypotheses
     context = _build_scan_context(scan_id, session)
     try:
-        response = _client.messages.create(
+        response = await asyncio.to_thread(
+            _client.messages.create,
             model=MODEL, max_tokens=2000,
             system=(
                 "You are an expert hacker analyzing a penetration test in progress. "

@@ -43,7 +43,7 @@ class CaidoClient:
             "connected": False,
             "url": self.base_url,
             "token_set": bool(self.token),
-            "model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash"),
+            "model": os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-1.5-flash"),
         }
 
     def _headers(self) -> dict[str, str]:
@@ -96,7 +96,7 @@ class CaidoClient:
 
     async def analyze_request(self, request: dict[str, Any], target: dict[str, Any] | None = None) -> CaidoAnalysis:
         self.assert_request_in_scope(request, target)
-        model = os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-3.5-flash")
+        model = os.getenv("BOUNTYOS_CAIDO_MODEL", "gemini-1.5-flash")
         prompt = (
             "Analyze this authorized Caido HTTP request/response for IDOR, auth bypass, SSRF, GraphQL authorization, "
             "JWT issues, CORS mistakes, and exposed secrets. Return concise operational findings, evidence, confidence, "

@@ -49,7 +49,7 @@ class BrowserMCPClient:
             "enabled": self.enabled,
             "configured": self.enabled,
             "url": self.base_url or None,
-            "model": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-3.5-flash"),
+            "model": os.getenv("BOUNTYOS_BROWSER_MODEL", "gemini-1.5-flash"),
         }
 
     async def _get_optional(self, path: str) -> Any:

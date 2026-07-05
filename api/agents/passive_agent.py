@@ -31,7 +31,7 @@ from api.tools.discovery import get_passive_tools, ALL_TOOLS
 from api.agents.hacker_mindset import get_hacker_mindset_prompt, HACKER_QUESTIONS
 
 _client = get_ai_client()
-MODEL   = os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash")
+MODEL   = os.getenv("BOUNTYOS_RECON_MODEL", "gemini-1.5-flash")
 
 
 # ─── Passive-only tool whitelist categories ───────────────────────────────────
@@ -385,7 +385,8 @@ async def run_passive_agent(
         _log(scan_id, f"🔄 Passive Agent iteration {iteration+1}/{max_iterations}")
 
         try:
-            response = _client.messages.create(
+            response = await asyncio.to_thread(
+                _client.messages.create,
                 model=MODEL,
                 max_tokens=3000,
                 system=system,

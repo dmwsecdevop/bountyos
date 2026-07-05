@@ -37,25 +37,25 @@ class GeminiClient:
         self.retries = retries
 
     async def chat(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-2.5-flash-lite"))
+        selected = model or os.getenv("BOUNTYOS_CHAT_MODEL", os.getenv("BOUNTYOS_LIGHT_MODEL", "gemini-1.5-flash-8b"))
         prompt = self._prompt("General Hunter Brain chat", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="light_chat")
 
     async def summarize_scan(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_RECON_MODEL", "gemini-2.5-flash")
+        selected = model or os.getenv("BOUNTYOS_RECON_MODEL", "gemini-1.5-flash")
         prompt = self._prompt("Summarize the selected bounty scan with risk, evidence, and next steps", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="recon_summary")
 
     async def analyze_findings(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-2.5-pro"))
+        selected = model or os.getenv("BOUNTYOS_VALIDATION_MODEL", os.getenv("BOUNTYOS_EXPLOIT_MODEL", "gemini-1.5-pro"))
         prompt = self._prompt("Analyze findings like a senior bug bounty researcher", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="bug_reasoning")
 
     async def write_report(self, transcript: str | Iterable[dict[str, Any]], *, context: dict[str, Any] | None = None, model: str | None = None) -> GeminiResult:
-        selected = model or os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-2.5-pro"))
+        selected = model or os.getenv("BOUNTYOS_REPORT_MODEL", os.getenv("BOUNTYOS_MAIN_MODEL", "gemini-1.5-pro"))
         prompt = self._prompt("Write a clear bounty report with impact, reproduction, evidence, and remediation", transcript, context)
         text = await self._generate(selected, prompt)
         return GeminiResult(provider="gemini", model=selected, text=text, route="report_writing")
