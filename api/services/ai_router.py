@@ -28,9 +28,14 @@ def configured_provider() -> str:
     return os.getenv("BOUNTYOS_MAIN_PROVIDER", os.getenv("BOUNTYOS_AI_PROVIDER", "gemini")).strip().lower()
 
 
+from api.intelligence.performance_manager import performance_manager
+
+# ... (Existing code)
+
 def select_model(purpose: str = "fast_chat") -> str:
     env_name = PURPOSE_ENV.get(purpose, "BOUNTYOS_MAIN_MODEL")
-    return os.getenv(env_name) or os.getenv("BOUNTYOS_MAIN_MODEL") or DEFAULT_MODELS.get(purpose, "gemini-1.5-flash")
+    default = os.getenv(env_name) or os.getenv("BOUNTYOS_MAIN_MODEL") or DEFAULT_MODELS.get(purpose, "gemini-1.5-flash")
+    return performance_manager.get_preferred_model(purpose, default)
 
 
 def provider_status() -> dict[str, Any]:

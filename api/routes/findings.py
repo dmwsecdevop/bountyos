@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 
 from api.database import get_session
 from api.models import Finding, FindingUpdate, Approval, ApprovalDecision, ApprovalStatus
+from api.intelligence.feedback import feedback_manager
 
 # ─── Findings ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,21 @@ def get_finding(
     if not finding_obj:
         raise HTTPException(status_code=404, detail="Finding not found")
     return finding_obj
+
+
+@findings_router.post("/{finding_id}/feedback")
+def post_feedback(
+    finding_id: str,
+    is_positive: bool,
+    notes: str = "",
+    session: Session = Depends(get_session),
+):
+    """Record feedback on a finding."""
+    finding = session.get(Finding, finding_id)
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    feedback_manager.record_feedback(session, finding.scan_id, finding_id, is_positive, notes)
+    return {"status": "recorded"}
 
 
 @findings_router.patch("/{finding_id}", response_model=Finding)

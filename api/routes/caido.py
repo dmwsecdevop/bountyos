@@ -1,135 +1,69 @@
-"""
-BountyOS - Caido Integration
-
-Caido is a modern web proxy for security testing (caido.io).
-This connector:
-  1. Pushes confirmed BountyOS findings into Caido's project
-  2. Pulls Caido's intercepted HTTP requests for AI analysis
-  3. Imports Caido replay items as attack targets
-  4. Exports BountyOS scan reports in Caido-compatible format
-
-Caido API: GraphQL at http://localhost:8080/graphql
-Auth: Bearer token from Caido settings → API keys
-
-Setup:
-  1. Open Caido → Settings → API → Create API Key
-  2. Set env var: CAIDO_API_TOKEN=your_token_here
-  3. Set env var: CAIDO_URL=http://localhost:8080 (default)
-"""
-
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from sqlmodel import Session, select
+from typing import Optional, List, Dict
 import os
-import json
 import asyncio
 from datetime import datetime
-from typing import Optional, List
-import httpx
-
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
-from pydantic import BaseModel
 
 from api.database import get_session
 from api.models import Finding, Scan, Target
+from api.integrations.caido_client import CaidoClient
+from api.agents.caido_analysis_agent import caido_analysis_agent
 
 router = APIRouter(prefix="/integrations/caido", tags=["integrations"])
 
 CAIDO_URL   = os.getenv("CAIDO_URL",       "http://localhost:8080")
 CAIDO_TOKEN = os.getenv("CAIDO_API_TOKEN", "")
 
+# ─── WebSocket Manager ────────────────────────────────────────────────────────
 
-# ─── Caido GraphQL client ─────────────────────────────────────────────────────
+class CaidoConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.last_request_id: Optional[str] = None
+        self.polling_task: Optional[asyncio.Task] = None
 
-class CaidoClient:
-    def __init__(self, base_url: str, token: str):
-        self.base_url = base_url.rstrip("/")
-        self.graphql  = f"{self.base_url}/graphql"
-        self.headers  = {
-            "Content-Type":  "application/json",
-            "Authorization": f"Bearer {token}",
-        }
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        if not self.polling_task:
+            self.polling_task = asyncio.create_task(self._poll_caido())
 
-    async def query(self, query: str, variables: dict = None) -> dict:
-        async with httpx.AsyncClient(timeout=15) as client:
-            res = await client.post(
-                self.graphql,
-                headers=self.headers,
-                json={"query": query, "variables": variables or {}},
-            )
-            res.raise_for_status()
-            data = res.json()
-            if "errors" in data:
-                raise ValueError(f"Caido GraphQL error: {data['errors']}")
-            return data.get("data", {})
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+        if not self.active_connections and self.polling_task:
+            self.polling_task.cancel()
+            self.polling_task = None
 
-    async def ping(self) -> bool:
-        try:
-            data = await self.query("{ viewer { username } }")
-            return bool(data.get("viewer", {}).get("username"))
-        except Exception:
-            return False
+    async def broadcast(self, data: dict):
+        for connection in self.active_connections:
+            await connection.send_json(data)
 
-    async def get_requests(self, limit: int = 100) -> List[dict]:
-        """Pull intercepted HTTP requests from Caido."""
-        q = """
-        query GetRequests($first: Int) {
-          requests(first: $first) {
-            edges {
-              node {
-                id
-                host
-                port
-                path
-                method
-                query
-                headers { name value }
-                response { statusCode }
-              }
-            }
-          }
-        }
-        """
-        try:
-            data = await self.query(q, {"first": limit})
-            edges = data.get("requests", {}).get("edges", [])
-            return [e["node"] for e in edges]
-        except Exception:
-            return []
+    async def _poll_caido(self):
+        client = CaidoClient(CAIDO_URL, CAIDO_TOKEN)
+        while self.active_connections:
+            try:
+                requests = await client.get_requests(limit=10)
+                if requests:
+                    newest = requests[0]
+                    if newest.get("id") != self.last_request_id:
+                        self.last_request_id = newest.get("id")
+                        
+                        # Automated Analysis
+                        analysis = await caido_analysis_agent.analyze(newest)
+                        
+                        await self.broadcast({
+                            "request": newest,
+                            "analysis": analysis.as_dict() if analysis else None
+                        })
+                await asyncio.sleep(2)
+            except Exception as e:
+                print(f"Caido polling/analysis error: {e}")
+                await asyncio.sleep(5)
 
-    async def create_finding(self, title: str, severity: str,
-                              description: str, request_id: str = None) -> Optional[str]:
-        """Push a finding into Caido."""
-        # Caido uses its own finding/issue system
-        # Map BountyOS severity to Caido severity
-        sev_map = {
-            "critical": "CRITICAL", "high": "HIGH",
-            "medium": "MEDIUM",     "low": "LOW", "info": "INFO",
-        }
-        q = """
-        mutation CreateFinding($title: String!, $severity: FindingSeverity!, $description: String!) {
-          createFinding(input: { title: $title, severity: $severity, description: $description }) {
-            finding { id title }
-          }
-        }
-        """
-        try:
-            data = await self.query(q, {
-                "title":       title,
-                "severity":    sev_map.get(severity, "INFO"),
-                "description": description,
-            })
-            fid = data.get("createFinding", {}).get("finding", {}).get("id")
-            return fid
-        except Exception:
-            return None
+caido_ws_manager = CaidoConnectionManager()
 
-    async def get_projects(self) -> List[dict]:
-        q = "{ projects { id name } }"
-        try:
-            data = await self.query(q)
-            return data.get("projects", [])
-        except Exception:
-            return []
-
+# ─── Helper ──────────────────────────────────────────────────────────────────
 
 def _get_client() -> CaidoClient:
     if not CAIDO_TOKEN:
@@ -138,6 +72,19 @@ def _get_client() -> CaidoClient:
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
+
+@router.websocket("/ws")
+async def caido_ws_stream(websocket: WebSocket):
+    """
+    WebSocket endpoint — streams live intercepted requests from Caido with AI analysis.
+    """
+    await caido_ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        caido_ws_manager.disconnect(websocket)
 
 @router.get("/status")
 async def caido_status():

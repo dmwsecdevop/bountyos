@@ -1,0 +1,11 @@
+{
+  "agents": {
+    "overrides": {
+      "generalist": {
+        "modelConfig": {
+          "model": "Gemini-2.5-flash"
+        }
+      }
+    }
+  }
+}

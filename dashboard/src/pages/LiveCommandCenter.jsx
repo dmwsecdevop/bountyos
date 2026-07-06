@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import CaidoProxyPanel from '../components/CaidoProxyPanel'
 
 const card = {
   background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:14,
@@ -180,11 +181,12 @@ export default function LiveCommandCenter() {
       </div>
     </div>
 
-    <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14}}>
+    <div style={{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:14}}>
       <Panel title='ACTIVE SCANS' items={activeScans} empty='No active scans' render={s => <><b>{s.id.slice(0,8)}</b> {s.status} / {s.phase}</>} />
       <Panel title='LIVE FINDINGS' items={recentFindings.slice(0,8)} empty='No findings yet' render={f => <><b>{String(f.severity).toUpperCase()}</b> {f.title}</>} />
       <Panel title='PENDING APPROVALS' items={pendingApprovals.slice(0,8)} empty='No approvals pending' render={a => <><b>{a.phase}</b> {a.action}</>} />
       <Panel title='PROGRAM RADAR' items={recentPrograms.slice(0,8)} empty='No programs checked yet' render={p => <><b>{p.platform}</b> {p.name} · score {p.value_score}</>} />
+      <div style={card}><CaidoProxyPanel /></div>
     </div>
 
     <div style={{...card, minHeight:260}}>

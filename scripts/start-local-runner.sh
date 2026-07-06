@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.runner.env"
-SERVER="${SERVER:-${BOUNTYOS_SERVER:-http://127.0.0.1:8080}}"
+SERVER="${SERVER:-${BOUNTYOS_SERVER:-http://127.0.0.1:8081}}"
 RUNNER_NAME="${RUNNER_NAME:-${BOUNTYOS_RUNNER_NAME:-bountyos-local-runner}}"
 RUNNER_LABELS="${RUNNER_LABELS:-${BOUNTYOS_RUNNER_LABELS:-local,kali,parrot,wsl,self-hosted}}"
 
@@ -14,7 +14,7 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-SERVER="${SERVER:-${BOUNTYOS_SERVER:-http://127.0.0.1:8080}}"
+SERVER="${SERVER:-${BOUNTYOS_SERVER:-http://127.0.0.1:8081}}"
 RUNNER_ID="${RUNNER_ID:-${BOUNTYOS_RUNNER_ID:-}}"
 RUNNER_TOKEN="${RUNNER_TOKEN:-${BOUNTYOS_RUNNER_TOKEN:-}}"
 RUNNER_NAME="${RUNNER_NAME:-${BOUNTYOS_RUNNER_NAME:-bountyos-local-runner}}"

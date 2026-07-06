@@ -81,7 +81,7 @@ function IntegrationCard({item, remote, values, status, onChange, onSave, onTest
       <span className={`badge ${statusTone(status)}`}>{status || 'not connected'}</span>
     </div>
     <div className="integration-fields">
-      {item.fields.map(field => <SecretInput key={field.envKey} field={field} value={values?.[field.envKey]} remote={remote?.[field.envKey]} onChange={value => onChange(item.id, field.envKey, value)} onSave={value => onSave(field.envKey, value)} />)}
+      {item.fields.map(field => <SecretInput key={field.envKey} field={field} value={values?.[field.envKey]} remote={remote?.[field.envKey]} onChange={value => onChange(item.id, field.envKey, value)} onSave={value => onSave(item.id, field.envKey, value)} />)}
     </div>
     <button disabled={!filled || status === 'testing'} onClick={() => onTest(item.id)}>{status === 'testing' ? 'Testing...' : 'Test connection'}</button>
   </div>;
@@ -98,6 +98,18 @@ export default function IntegrationConfig() {
       const res = await fetch(`${API}/integrations/config`);
       const data = await res.json();
       setRemote(data.integrations || {});
+      setValues(prev => {
+        const next = {...prev};
+        for (const [id, fields] of Object.entries(data.integrations || {})) {
+          next[id] = {...(next[id] || {})};
+          for (const [envKey, info] of Object.entries(fields)) {
+            if (info.set && !next[id][envKey]) {
+              next[id][envKey] = info.masked;
+            }
+          }
+        }
+        return next;
+      });
       setError('');
     } catch (e) {
       setError('Unable to load integration config API. Rebuild the backend image.');
@@ -107,8 +119,9 @@ export default function IntegrationConfig() {
   useEffect(() => { load(); }, []);
 
   const onChange = (id, envKey, value) => setValues(prev => ({...prev, [id]: {...(prev[id] || {}), [envKey]: value}}));
-  const onSave = async (envKey, value) => {
+  const onSave = async (id, envKey, value) => {
     if (!value) return;
+    if (remote?.[id]?.[envKey]?.set && value === remote[id][envKey].masked) return;
     try {
       const res = await fetch(`${API}/integrations/config/save`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({env_key: envKey, value})});
       if (!res.ok) throw new Error(await res.text());

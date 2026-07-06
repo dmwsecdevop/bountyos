@@ -150,6 +150,18 @@ AI_TOOLS = [
         },
     },
     {
+        "name": "trigger_recon_scan",
+        "description": "Trigger a new passive or aggressive recon scan on the target.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["passive", "aggressive"]},
+                "reason": {"type": "string"}
+            },
+            "required": ["mode", "reason"]
+        }
+    },
+    {
         "name": "finish_analysis",
         "description": "Signal that the AI has completed its exploit chain analysis. Provide a final summary.",
         "input_schema": {
@@ -361,6 +373,15 @@ async def _handle_propose_exploit_step(
     )
 
 
+async def _handle_trigger_recon_scan(scan_id: str, args: dict) -> str:
+    from api.services.scan_orchestrator import ScanOrchestrator
+    with session_ctx() as s:
+        scan = s.get(Scan, scan_id)
+        if not scan: return "Scan not found"
+        orchestrator = ScanOrchestrator()
+        new_scan = await orchestrator.run_scan(scan.target_id, args["mode"], {"reason": args["reason"]})
+        return f"Triggered new scan {new_scan.id}"
+
 async def _handle_finish_analysis(scan_id: str, args: dict) -> str:
     summary = args.get("summary", "")
     with session_ctx() as s:
@@ -385,6 +406,7 @@ async def _dispatch(scan_id: str, tool_name: str, args: dict) -> str:
         "emit_reasoning":       _handle_emit_reasoning,
         "write_finding":        _handle_write_finding,
         "propose_exploit_step": _handle_propose_exploit_step,
+        "trigger_recon_scan":   _handle_trigger_recon_scan,
         "finish_analysis":      _handle_finish_analysis,
     }
     handler = dispatch.get(tool_name)

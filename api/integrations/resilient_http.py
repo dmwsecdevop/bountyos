@@ -17,6 +17,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import httpx
+from api.integrations.proxy_manager import ProxyManager
+from api.integrations.rate_limiter import RateLimiter
+
+proxy_manager = ProxyManager()
+rate_limiter = RateLimiter()
 
 
 @dataclass
@@ -251,9 +256,11 @@ def request_json_sync(
     max_wait = float(os.getenv("BOUNTYOS_MAX_RETRY_WAIT", "8"))
     timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 8.0))
     last_error: Optional[ConnectorError] = None
+    proxy = proxy_manager.get_proxy()
 
-    with httpx.Client(timeout=timeout, follow_redirects=follow_redirects) as client:
+    with httpx.Client(timeout=timeout, follow_redirects=follow_redirects, proxies={"http://": proxy, "https://": proxy} if proxy else None) as client:
         for attempt in range(1, attempts_allowed + 1):
+            rate_limiter.check_and_wait(provider)
             try:
                 response = client.request(method, url, headers=headers, auth=auth, params=params, json=json_body)
                 if response.is_success:
@@ -277,11 +284,15 @@ def request_json_sync(
 
                 error = classify_response_error(provider, url, response, attempt)
                 last_error = error
+                if proxy:
+                    proxy_manager.report_failure(proxy)
                 if not error.retryable or attempt >= attempts_allowed:
                     connector_health.record_failure(provider, error)
                     return ConnectorResponse(False, status_code=response.status_code, attempts=attempt, error=error, headers=dict(response.headers))
                 time.sleep(_backoff(attempt, error.retry_after_seconds, max_wait))
             except httpx.TimeoutException:
+                if proxy:
+                    proxy_manager.report_failure(proxy)
                 last_error = ConnectorError(
                     code="network_timeout",
                     message="The API request timed out. BountyOS retried automatically; check internet access or provider availability.",
@@ -291,6 +302,8 @@ def request_json_sync(
                     attempts=attempt,
                 )
             except httpx.RequestError as exc:
+                if proxy:
+                    proxy_manager.report_failure(proxy)
                 last_error = ConnectorError(
                     code="network_error",
                     message=f"Could not reach the provider: {exc}",
@@ -326,9 +339,11 @@ async def request_json_async(
     max_wait = float(os.getenv("BOUNTYOS_MAX_RETRY_WAIT", "8"))
     timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 8.0))
     last_error: Optional[ConnectorError] = None
+    proxy = proxy_manager.get_proxy()
 
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects, proxies={"http://": proxy, "https://": proxy} if proxy else None) as client:
         for attempt in range(1, attempts_allowed + 1):
+            rate_limiter.check_and_wait(provider)
             try:
                 response = await client.request(method, url, headers=headers, auth=auth, params=params, json=json_body)
                 if response.is_success:
@@ -352,11 +367,15 @@ async def request_json_async(
 
                 error = classify_response_error(provider, url, response, attempt)
                 last_error = error
+                if proxy:
+                    proxy_manager.report_failure(proxy)
                 if not error.retryable or attempt >= attempts_allowed:
                     connector_health.record_failure(provider, error)
                     return ConnectorResponse(False, status_code=response.status_code, attempts=attempt, error=error, headers=dict(response.headers))
                 await anyio.sleep(_backoff(attempt, error.retry_after_seconds, max_wait))
             except httpx.TimeoutException:
+                if proxy:
+                    proxy_manager.report_failure(proxy)
                 last_error = ConnectorError(
                     code="network_timeout",
                     message="The API request timed out. BountyOS retried automatically; check internet access or provider availability.",
@@ -366,6 +385,8 @@ async def request_json_async(
                     attempts=attempt,
                 )
             except httpx.RequestError as exc:
+                if proxy:
+                    proxy_manager.report_failure(proxy)
                 last_error = ConnectorError(
                     code="network_error",
                     message=f"Could not reach the provider: {exc}",

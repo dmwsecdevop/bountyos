@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import time
+import random
 from pathlib import Path
 from typing import Dict
 from urllib.parse import urlencode
@@ -196,12 +197,23 @@ class Runner:
         started = time.monotonic()
         try:
             argv = self.validate_job(tool, message.get("argv") or [])
+            
+            # --- Upgrade 3: Adaptive Stealth/Traffic Shaping ---
+            await asyncio.sleep(random.uniform(0.5, 2.0))
+            env = os.environ.copy()
+            env["USER_AGENT"] = random.choice([
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            ])
+            # ----------------------------------------------------
+
             await self.send({"type": "job_started", "job_id": job_id, "tool": tool})
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
+                env=env,
             )
             self.processes[job_id] = proc
             output_bytes = 0
@@ -264,11 +276,6 @@ class Runner:
         query = urlencode({"runner_id": self.args.runner_id})
         uri = self.args.server.rstrip("/") + "/ws/runners/connect?" + query
 
-        masked_uri = uri
-        if "token=" in uri:
-            # Although token is usually in auth message, if it was in URI we would mask it
-            pass
-
         print(f"[*] Connecting to {self.args.server}", flush=True)
         print(f"[*] Runner ID: {self.args.runner_id}", flush=True)
 
@@ -301,6 +308,13 @@ class Runner:
                         if mtype == "job":
                             job_id = str(message.get("job_id"))
                             tasks[job_id] = asyncio.create_task(self.run_job(message))
+                        elif mtype == "fuzz":
+                            # --- Upgrade 4: Persistent Protocol Fuzzing ---
+                            from runner.protocol_fuzzer import start_fuzzing
+                            host = message.get("host")
+                            port = message.get("port")
+                            job_id = str(message.get("job_id"))
+                            tasks[job_id] = asyncio.create_task(start_fuzzing(host, port))
                         elif mtype == "cancel_job":
                             job_id = str(message.get("job_id"))
                             task = tasks.get(job_id)

@@ -16,7 +16,7 @@ fi
 
 docker compose up -d
 
-HEALTH_URL="${BOUNTYOS_HEALTH_URL:-http://127.0.0.1:8080/health}"
+HEALTH_URL="${BOUNTYOS_HEALTH_URL:-http://127.0.0.1:8081/health}"
 echo "Waiting for $HEALTH_URL ..."
 for _ in {1..60}; do
   if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
@@ -36,7 +36,7 @@ fi
 
 sleep 2
 
-echo "Dashboard: http://127.0.0.1:8080"
+echo "Dashboard: http://127.0.0.1:8081"
 echo "Runner status:"
-curl -sS http://127.0.0.1:8080/api/v1/runners/capabilities || true
+curl -sS http://127.0.0.1:8081/api/v1/runners/capabilities || true
 echo

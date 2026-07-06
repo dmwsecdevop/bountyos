@@ -13,7 +13,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://bountyos:bountyos_change_me@postgres:5432/bountyos}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     ports:
-      - "8080:8080"
+      - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -21,6 +21,7 @@ services:
         condition: service_healthy
     volumes:
       - bountyos_data:/app/data
+      - ./.env:/app/.env
     networks:
       - bountyos
 

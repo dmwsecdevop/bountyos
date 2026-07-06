@@ -89,6 +89,7 @@ class Finding(SQLModel, table=True):
     cwe_id:      Optional[str]  = None
     remediation: Optional[str]  = None
     false_positive: bool = False
+    is_priority: bool = False
     created_at:  datetime = Field(default_factory=datetime.utcnow)
 
     scan: Optional[Scan] = Relationship(back_populates="findings")
@@ -182,6 +183,7 @@ class ScanCreate(SQLModel):
 
 class FindingUpdate(SQLModel):
     false_positive: Optional[bool] = None
+    is_priority:    Optional[bool] = None
     remediation:    Optional[str]  = None
     notes:          Optional[str]  = None
 
