@@ -167,6 +167,15 @@ class BountyAccount(SQLModel, table=True):
     updated_at:       datetime = Field(default_factory=datetime.utcnow)
 
 
+class SessionState(SQLModel, table=True):
+    id:            str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    scan_id:       str = Field(foreign_key="scan.id", index=True)
+    user_id:       str = Field(index=True)
+    session_token: str
+    metadata_json: str = "{}"
+    created_at:    datetime = Field(default_factory=datetime.utcnow)
+    updated_at:    datetime = Field(default_factory=datetime.utcnow)
+
 # ─── Pydantic response schemas (no table=True) ────────────────────────────────
 
 class TargetCreate(SQLModel):
