@@ -318,7 +318,7 @@ _client_singleton: GeminiCompatClient | None = None
 
 
 def get_ai_client() -> GeminiCompatClient:
-    global _client_singleton
-    if _client_singleton is None:
-        _client_singleton = GeminiCompatClient()
-    return _client_singleton
+    # Deliberately NOT cached as a singleton - a cached singleton locks in
+    # whatever GEMINI_API_KEY was present at first use forever, even after
+    # a new key is saved later via the Integrations page.
+    return GeminiCompatClient()
